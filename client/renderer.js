@@ -346,7 +346,8 @@
     var coinY = y - size * 0.06;
     var coinR = Math.max(6, size * 0.26);
     if (opts.revealed) {
-      drawBallotOpen(ctx, coinX, coinY, coinR, seat, view, scale);
+      drawBallotOpen(ctx, coinX, coinY, coinR, seat, view, scale,
+        L.compact);
     } else if (opts.ballot) {
       drawEnvelope(ctx, coinX, coinY, coinR, scale);
     } else {
@@ -432,23 +433,41 @@
     ctx.restore();
   }
 
-  function drawBallotOpen(ctx, x, y, r, seat, view, scale) {
+  // The opened ballot: the envelope with its flap up, the vote WORD spelled
+  // out beneath it in the side's colour (never "A"), and a tick or a cross
+  // for an honest seat.
+  function drawBallotOpen(ctx, x, y, r, seat, view, scale, compact) {
     var vote = seat.vote;
-    var w = r * 2.3;
-    var h = r * 1.7;
+    var w = r * 2.1;
+    var h = r * 1.5;
     ctx.save();
     ctx.fillStyle = PAPER;
-    ctx.fillRect(x - w / 2, y - h / 2, w, h);
     ctx.strokeStyle = sideColor(vote);
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.6;
+    ctx.fillRect(x - w / 2, y - h / 2, w, h);
     ctx.strokeRect(x - w / 2, y - h / 2, w, h);
-    ctx.font = "700 " + Math.round(9 * scale) +
-      "px 'rajdhani', system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = INK;
-    ctx.fillText(ellipsize(ctx, answerWord(view, vote), w - 3), x, y);
+    // Flap, opened upward.
+    ctx.beginPath();
+    ctx.moveTo(x - w / 2, y - h / 2);
+    ctx.lineTo(x, y - h * 1.05);
+    ctx.lineTo(x + w / 2, y - h / 2);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(242, 232, 216, 0.75)";
+    ctx.fill();
+    ctx.stroke();
     ctx.restore();
+    if (!compact) {
+      ctx.save();
+      ctx.font = "700 " + Math.round(9 * scale) +
+        "px 'rajdhani', system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = sideColor(vote);
+      ctx.shadowColor = "rgba(0,0,0,0.9)";
+      ctx.shadowBlur = 3;
+      ctx.fillText(answerWord(view, vote), x, y + h / 2 + 2 * scale);
+      ctx.restore();
+    }
     if (seat.role === "honest" && vote) {
       var right = vote === view.truth;
       ctx.save();
@@ -459,7 +478,7 @@
       ctx.fillStyle = right ? "#45a85e" : "#e0523a";
       ctx.shadowColor = "rgba(0,0,0,0.9)";
       ctx.shadowBlur = 3;
-      ctx.fillText(right ? "✓" : "✗", x, y - h * 0.9);
+      ctx.fillText(right ? "✓" : "✗", x - w * 0.75, y);
       ctx.restore();
     }
   }
