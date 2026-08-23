@@ -463,30 +463,30 @@ suite "replay":
     var live = initSim(config)
     ## Every live state, keyed by how many events had been recorded when it
     ## was observed: frames[k] must equal the live table after k events.
-    var checkpoints: seq[tuple[index: int, state: string]]
-    checkpoints.add((index: 0, state: $initSim(config).tableStateJson()))
+    var liveFrames: seq[tuple[index: int, state: string]]
+    liveFrames.add((index: 0, state: $initSim(config).tableStateJson()))
     var round = 0
     while not live.done:
       if live.phase == phBallot:
         for seat in live.pendingSeats():
           live.applyVote(seat, (if seat mod 3 == 0: "B" else: "A"), 40 + seat,
             "reason " & $seat, "note " & $seat, false)
-          checkpoints.add((index: live.events.len,
+          liveFrames.add((index: live.events.len,
             state: $live.tableStateJson()))
       else:
         for seat in live.pendingSeats():
           live.applyMessage(seat, (if seat mod 2 == 0: "A" else: "B"),
             50 + seat, 50 + seat, "round " & $round & " seat " & $seat,
             "note " & $seat, false)
-          checkpoints.add((index: live.events.len,
+          liveFrames.add((index: live.events.len,
             state: $live.tableStateJson()))
         inc round
     let frames = replayMatch(config, live.events)
     check frames.len == live.events.len + 1
     ## Not just the count and the last frame: every intermediate frame is
     ## compared against the live table as it stood at that event index.
-    check checkpoints.len == 4 * Seats + 1
-    for point in checkpoints:
+    check liveFrames.len == 4 * Seats + 1
+    for point in liveFrames:
       check $frames[point.index].tableStateJson() == point.state
     check $frames[^1].tableStateJson() == $live.tableStateJson()
     check frames[^1].done
