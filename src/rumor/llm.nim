@@ -383,6 +383,14 @@ proc userPrompt*(sim: Sim, seat: int, prompt: string): string =
 
 # ---- Anthropic / Bedrock transport ------------------------------------------
 
+proc errorHead*(text: string, limit: int): string =
+  ## The head of a captured error or reply body, cut on a RUNE boundary: a
+  ## byte slice through a multi-byte character leaves invalid UTF-8 in the
+  ## message, and these messages are echoed to a hosted log.
+  result = text.strip()
+  if result.runeLen > limit:
+    result = result.runeSubStr(0, limit) & "..."
+
 proc extractJsonObject*(text: string): JsonNode =
   ## Pulls the first {...} object out of a model response, tolerating fences.
   let start = text.find('{')
@@ -390,11 +398,8 @@ proc extractJsonObject*(text: string): JsonNode =
   if start < 0 or stop <= start:
     ## Quote the head of the reply so a hosted log shows WHAT the model
     ## sent instead of JSON (prose, a refusal, a cut-off analysis...).
-    var head = text.strip()
-    if head.len > 160:
-      head = head[0 ..< 160] & "..."
     raise newException(RumorError, "no JSON object in response: " &
-      head.replace("\n", " "))
+      errorHead(text, 160).replace("\n", " "))
   parseJson(text[start .. stop])
 
 proc requestFor(client: LlmClient, system, user: string):
@@ -431,7 +436,7 @@ proc textOf(client: LlmClient, response: Response, error, url: string):
   if error.len > 0:
     raise newException(RumorError, "llm transport: " & error)
   if response.code == 401 or response.code == 403:
-    let detail = response.body[0 .. min(response.body.high, 400)]
+    let detail = errorHead(response.body, 400)
     if "Model access is denied" in response.body and
         client.tryNextBedrockModel("no model access"):
       raise newException(RumorError,
@@ -440,12 +445,12 @@ proc textOf(client: LlmClient, response: Response, error, url: string):
     raise newException(RumorError,
       "llm auth failed (" & $response.code & ") at " & url & ": " & detail)
   if response.code == 429:
-    let detail = response.body[0 .. min(response.body.high, 300)]
+    let detail = errorHead(response.body, 300)
     discard client.tryNextBedrockModel("throttled")
     raise newException(RumorError, "llm throttled (429): " & detail)
   if response.code < 200 or response.code >= 300:
     raise newException(RumorError, "anthropic error " & $response.code &
-      ": " & response.body[0 .. min(response.body.high, 300)])
+      ": " & errorHead(response.body, 300))
   let payload = parseJson(response.body)
   if payload{"stop_reason"}.getStr() == "refusal":
     raise newException(RumorError, "anthropic refusal")
@@ -454,7 +459,7 @@ proc textOf(client: LlmClient, response: Response, error, url: string):
       result.add(contentBlock{"text"}.getStr())
   if payload{"stop_reason"}.getStr() == "max_tokens" and '{' notin result:
     raise newException(RumorError, "reply cut off at max_tokens before " &
-      "any JSON: " & result[0 .. min(result.high, 160)].replace("\n", " "))
+      "any JSON: " & errorHead(result, 160).replace("\n", " "))
 
 # ---- Reply parsing ----------------------------------------------------------
 

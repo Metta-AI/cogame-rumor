@@ -236,6 +236,21 @@ suite "llm fallback and parsing":
     expect RumorError:
       discard extractJsonObject("I think the answer is BROKEN.")
 
+  test "captured error text is cut on rune boundaries":
+    ## The quoted head of an unusable reply is echoed to the hosted log; a
+    ## byte slice at the cap would cut a multi-byte character in half.
+    let prose = "日".repeat(300)
+    check errorHead(prose, 160).runeLen == 163
+    check errorHead(prose, 160).validateUtf8() == -1
+    check errorHead("short", 160) == "short"
+    var message = ""
+    try:
+      discard extractJsonObject(prose)
+    except RumorError as error:
+      message = error.msg
+    check message.len > 0
+    check message.validateUtf8() == -1
+
 suite "prompts":
   test "a prompt carries the seat's own view and nothing hidden":
     var sim = initSim(fixture(7, rounds = 3))
