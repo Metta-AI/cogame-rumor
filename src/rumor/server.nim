@@ -294,7 +294,11 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         ## to any other seat this round.
         for index, seat in seats:
           let decision = decisions[index]
-          let wasScripted = scripted[seat] != skNone or client.disabled
+          ## Provenance comes from the decision itself, so a seat whose LLM
+          ## reply failed and fell back to the baseline is recorded as
+          ## scripted too, not just a seat registered as one.
+          let wasScripted = decision.scripted or
+            scripted[seat] != skNone or client.disabled
           try:
             if ballot:
               state.sim.applyVote(seat, decision.vote, decision.belief,

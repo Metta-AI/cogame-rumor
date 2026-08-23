@@ -48,6 +48,7 @@ type
     vote*: string       ## ballot turn: "A" | "B"
     reason*: string     ## ballot turn, may be ""
     notes*: string      ## "" when the reply carried none
+    scripted*: bool     ## the baseline decided this, not a model reply
 
   LlmTransport = enum
     ltNone, ltBedrock, ltAnthropic
@@ -234,6 +235,11 @@ proc scriptedAction*(sim: Sim, seat: int, kind: ScriptKind): Decision =
   result.vote = result.claim
   result.reason = ""
   result.notes = ""
+  ## Provenance, carried to the server, into the event and into the replay:
+  ## every baseline decision is one, including a fallback after a failed
+  ## batch, so a phase-60 count can be taken from the recorded episode and
+  ## not just from the container log.
+  result.scripted = true
 
 # ---- Prompt building --------------------------------------------------------
 

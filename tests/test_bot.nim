@@ -130,10 +130,17 @@ suite "llm fallback and parsing":
       let expected = scriptedAction(sim, seat, kind)
       check decisions[index].claim == expected.claim
       check decisions[index].message == expected.message
+      ## Provenance: every baseline decision says so, and the flag reaches
+      ## the event and the replay JSON.
+      check decisions[index].scripted
       sim.applyMessage(seat, decisions[index].claim,
         decisions[index].confidence, decisions[index].belief,
-        decisions[index].message, "", true)
+        decisions[index].message, "", decisions[index].scripted)
     check sim.round == 1
+    for event in sim.events:
+      if event.kind == evSay:
+        check event.scripted
+        check event.eventToJson()["scripted"].getBool()
 
   test "PLAYER_SCRIPTED spellings":
     check parseScriptKind("1") == skGossip
@@ -150,6 +157,9 @@ suite "llm fallback and parsing":
     check sim.parseTalkReply(parseJson(
       """{"claim":"A","confidence":72,"belief":70,"message":"hi"}""")
       ).claim == "A"
+    ## A model reply is never marked scripted; only the baseline is.
+    check not sim.parseTalkReply(parseJson(
+      """{"claim":"A","message":"hi"}""")).scripted
     check sim.parseTalkReply(parseJson(
       """{"claim":"b","message":"hi"}""")).claim == "B"
     check sim.parseTalkReply(parseJson(
@@ -202,6 +212,7 @@ suite "llm fallback and parsing":
     let a = sim.optionA
     check sim.parseVoteReply(parseJson(
       """{"vote":"A","belief":85,"reason":"three to one"}""")).vote == "A"
+    check not sim.parseVoteReply(parseJson("""{"vote":"A"}""")).scripted
     check sim.parseVoteReply(parseJson("""{"vote":"b"}""")).vote == "B"
     check sim.parseVoteReply(parseJson("""{"vote":1}""")).vote == "A"
     check sim.parseVoteReply(parseJson("""{"vote":"2"}""")).vote == "B"
