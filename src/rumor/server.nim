@@ -310,14 +310,24 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           except RumorError as error:
             echo "rumor: reply rejected (", error.msg,
               "); using scripted fallback"
-            let fallback = scriptedAction(state.sim, seat, skGossip)
-            if ballot:
-              state.sim.applyVote(seat, fallback.vote, fallback.belief,
-                "", "", true)
-            else:
-              state.sim.applyMessage(seat, fallback.claim,
-                fallback.confidence, fallback.belief, fallback.message,
-                "", true)
+            ## The fallback is applied inside its own guard: it is
+            ## unreachable after the pre-checks, but if it ever did raise
+            ## (the seat has already acted this turn) the escape would kill
+            ## the game thread while mummy kept serving. Skipping the seat
+            ## costs at most one turn; the play deadline still bounds the
+            ## episode.
+            try:
+              let fallback = scriptedAction(state.sim, seat, skGossip)
+              if ballot:
+                state.sim.applyVote(seat, fallback.vote, fallback.belief,
+                  "", "", true)
+              else:
+                state.sim.applyMessage(seat, fallback.claim,
+                  fallback.confidence, fallback.belief, fallback.message,
+                  "", true)
+            except RumorError as fallbackError:
+              echo "rumor: scripted fallback rejected for seat ", seat,
+                " (", fallbackError.msg, "); skipping the seat"
         state.broadcastLocked()
 
       ## Pace between turns so spectators can read the graph.
