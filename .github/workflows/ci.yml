@@ -303,10 +303,15 @@ jobs:
           test -n "${replay}" || {
             echo "::error::docker-smoke uploaded no replay to dist/smoke"; ls -la dist/smoke || true; exit 1; }
           echo "loading ${replay} in dist/static-replay-viewer"
+          # --soak: LOADING IS NOT PLAYING. After the load signal the harness
+          # watches the clock/scorebug for 10 s and fails if playback stops
+          # advancing (cogball 0.1.4 loaded, drew one frame and froze). The
+          # rumor smoke replay paces ~40 s, so a 10 s soak lands mid-episode.
           node tools/ci/viewer_smoke.mjs \
             --bundle dist/static-replay-viewer \
             --replay "${replay}" \
-            --timeout 90
+            --timeout 90 \
+            --soak 10
 
       - name: Upload the viewer smoke evidence
         # Always: the screenshot and the JSON are most useful when the job is red.
