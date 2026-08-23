@@ -4,7 +4,7 @@
 ## They must also sit inside a measured accuracy band: below the floor they
 ## are noise, above the ceiling there is nothing for a champion to win.
 
-import std/[json, math, monotimes, strutils, times, unicode, unittest]
+import std/[json, math, monotimes, os, strutils, times, unicode, unittest]
 import rumor/[llm, sim]
 
 proc fixture(seed: int, rounds = 5, topology = "random"): GameConfig =
@@ -300,3 +300,50 @@ suite "prompts":
     check "SEALED VOTE" in user
     check "\"vote\"" in user
     check "\"claim\"" notin user
+
+suite "the retry path":
+  test "a dead transport retries once, falls back, and records it":
+    ## The one decision path no test covered: a real batch that fails at the
+    ## transport, a second batch that fails the same way, and the scripted
+    ## baseline standing in — recorded as scripted in the decision, the
+    ## event and the replay JSON. The endpoint is a closed port, so both
+    ## attempts fail in milliseconds and the wall clock is the rate
+    ## governor's spacing between them.
+    putEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME", "http://127.0.0.1:1")
+    putEnv("AWS_BEARER_TOKEN_BEDROCK", "not-a-token")
+    let config = fixture(5, rounds = 3)
+    let client = newLlmClient(config)
+    delEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME")
+    delEnv("AWS_BEARER_TOKEN_BEDROCK")
+    ## Not the no-credentials shortcut: this client really dispatches.
+    check not client.disabled
+    var sim = initSim(config)
+    let seats = sim.pendingSeats()
+    let prompts = newSeq[string](Seats)
+    ## Nobody is registered as a scripted seat, so anything scripted in the
+    ## result came from the fallback.
+    let kinds = newSeq[ScriptKind](Seats)
+    let started = getMonoTime()
+    let decisions = client.decideAll(sim, seats, prompts, kinds)
+    let elapsed = (getMonoTime() - started).inMilliseconds.int
+    check decisions.len == Seats
+    ## Two dispatches with one rate-governor spacing between them, and the
+    ## whole turn inside its hard budget.
+    check elapsed >= MinBatchSpacingSeconds * 1000
+    check elapsed < TurnBudgetSeconds * 1000
+    for index, seat in seats:
+      let expected = scriptedAction(sim, seat, skGossip)
+      check decisions[index].claim == expected.claim
+      check decisions[index].message == expected.message
+      check decisions[index].scripted
+      sim.applyMessage(seat, decisions[index].claim,
+        decisions[index].confidence, decisions[index].belief,
+        decisions[index].message, decisions[index].notes,
+        decisions[index].scripted)
+    var says = 0
+    for event in sim.events:
+      if event.kind == evSay:
+        inc says
+        check event.scripted
+        check event.eventToJson()["scripted"].getBool()
+    check says == Seats
