@@ -15,7 +15,7 @@
 ##     --run /bin/rumor-player --secret-env PLAYER_PROMPT="<your strategy>"
 
 import
-  std/[json, options, os, strutils],
+  std/[json, options, os, strutils, times],
   whisky
 
 const DefaultPrompt = """
@@ -59,12 +59,31 @@ when isMainModule:
   ## quit(0) can outrun the flushed final frame — so a dead socket is a
   ## normal end of episode, not a failure. Without this guard the player
   ## container exits non-zero intermittently and fails certification.
+  ##
+  ## Every read is bounded: whisky returns none(Message) when its socket
+  ## read times out, and the loop as a whole ends at the episode deadline,
+  ## so a game that dies without closing the socket cannot hang this
+  ## container. In practice the game always sends `final` first.
+  const ReadTimeoutMs = 5_000
+  var budgetSeconds = 0.0
+  let hostedTimeout = getEnv("COWORLD_TIMEOUT_SECONDS", "").strip()
+  if hostedTimeout.len > 0:
+    try:
+      budgetSeconds = parseFloat(hostedTimeout)
+    except ValueError:
+      budgetSeconds = 0.0
+  if budgetSeconds <= 0.0:
+    budgetSeconds = 1200.0
+  ## Outlive the game by a margin: it writes its artifacts and keeps
+  ## serving for a shutdown grace after the episode settles.
+  let deadline = epochTime() + budgetSeconds + 300.0
   try:
-    while true:
-      let received = socket.receiveMessage()
+    while epochTime() < deadline:
+      let received = socket.receiveMessage(ReadTimeoutMs)
       if received.isNone:
-        echo "rumor player: connection closed, exiting"
-        break
+        ## The read timed out with the socket still open: keep waiting,
+        ## but only until the deadline.
+        continue
       let message = received.get()
       if message.kind != TextMessage:
         continue
@@ -85,6 +104,8 @@ when isMainModule:
           discard
       except CatchableError as error:
         echo "rumor player: ignoring bad frame: ", error.msg
+    if epochTime() >= deadline:
+      echo "rumor player: episode deadline reached; exiting"
   except CatchableError as error:
     echo "rumor player: socket ended (", error.msg, "); exiting"
   try:
