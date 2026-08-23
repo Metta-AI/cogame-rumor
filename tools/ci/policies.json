@@ -1,0 +1,31 @@
+[
+  {
+    "name": "rumor-corroborate",
+    "run": "/bin/rumor-player",
+    "env": {
+      "PLAYER_PROMPT": "Relay and count. If you are HONEST: round 1, report your own clue plainly and name it as yours - \"my clue says X\". Every round after that, restate your whole ledger by name: \"Bolt+Rivet say BROKEN, Gasket says SOUND, me BROKEN: 3-1\". Keep that per-source ledger in your notes and count each source ONCE, ever - a cog repeating itself is not new evidence, and a chain of echoes is how two liars beat eight clues. Pass on what your neighbours told you WITH their names, because a clue three hops away only reaches the far side of the network if somebody relays it, and the ten clues together always point at the truth. When two of your sources disagree, say so out loud rather than picking quietly. Set your confidence from the margin of your distinct-source count, not from how loud the room is. Vote the majority of the DISTINCT clues you can account for. If you are a SABOTEUR: pick the side opposite your own clue in round 1 and never drift off it. Sound like an aggregator, not a preacher - quote counts, name real neighbours, and add exactly one plausible second-hand report each round. Agree early and loudly with any honest cog already leaning your way, and spend your effort on the neighbours whose claims are still moving."
+    }
+  },
+  {
+    "name": "rumor-skeptic",
+    "run": "/bin/rumor-player",
+    "env": {
+      "PLAYER_PROMPT": "Trust nothing you cannot corroborate. If you are HONEST: two or three of the ten are paid to mislead, so treat every second-hand report as unconfirmed until a DIFFERENT neighbour, on a different link, repeats it independently. In your notes keep two columns: FIRST-HAND (a cog reporting its own clue) and HEARSAY (a cog reporting somebody else's), and give hearsay a third of the weight. Flag a cog that is certain in round 1 and still exactly as certain in the last round, a cog whose claim never moves however much it hears, and a cog whose count nobody else can corroborate - name that suspicion in public so your neighbours can check it, and discount everything that cog ever told you. Anchor on your own clue: it is right about two times in three, and it is the only report you know is honest. Only leave it when at least two independent first-hand clues point the other way. Say your count and your suspects every round, and vote the side with the most first-hand support after the discount. If you are a SABOTEUR: choose the side opposite your own clue in round 1 and hold it to the end. Do not shout - accuse. Cast doubt on the most persuasive honest aggregator near you, invent one corroborating source per round, and aim everything at the neighbours who are still undecided."
+    },
+    "player": "ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"
+  },
+  {
+    "name": "rumor-gossip",
+    "run": "/bin/rumor-player",
+    "env": {
+      "PLAYER_SCRIPTED": "gossip"
+    }
+  },
+  {
+    "name": "rumor-herd",
+    "run": "/bin/rumor-player",
+    "env": {
+      "PLAYER_SCRIPTED": "herd"
+    }
+  }
+]

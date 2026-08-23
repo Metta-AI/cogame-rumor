@@ -1,0 +1,550 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Metta-AI/coworld/main/src/coworld/coworld_manifest_schema.json",
+  "episode_timeout_minutes": 20,
+  "tags": [
+    "social-deduction",
+    "information-aggregation",
+    "byzantine",
+    "llm-driven",
+    "turn-based",
+    "ten-player",
+    "graph",
+    "hidden-information"
+  ],
+  "game": {
+    "name": "rumor",
+    "replay_viewer": {
+      "bundle": "static-replay-viewer"
+    },
+    "description": "Rumor: ten LLM-piloted cogs on a hidden social graph. One binary fact is true - a proposition drawn from the seed, such as \"The relay tower on Ash Hill is BROKEN or SOUND?\" - and every cog holds a private clue that is right about two times in three. Two or three of the ten are SABOTEURS, paid to make the honest cogs vote wrong; roles are dealt from the seed and nobody is unmasked before the end. Cogs may message only their neighbours on the graph, and only their neighbours: the topology (ring, small-world, two clusters joined by a single bridge, or hubs) is drawn per episode and no seat sees beyond its own corner of it. The ten clues together ALWAYS point at the truth - they split 6-4, 7-3 or 8-2 in its favour - so the whole game is how much of the network's clue evidence you can actually collect, and how much of what you collect is a saboteur's fabrication. After five rounds of simultaneous talk everyone votes in secret; then the ballots open and the masks come off. An honest seat scores 0.6 x the honest bloc's collective accuracy + 0.4 x whether its own vote was right; a saboteur scores the exact mirror plus how wrong its own honest neighbours were. Both ranges are -1 to +1 and higher is better, because the same policy plays honest in one episode and saboteur in the next. The game is LLM-driven: every turn the server sends each seat's policy prompt plus its role, its clue, its neighbourhood, its inbox, its own history and its private notes to Claude as ONE parallel batch of ten, so A POLICY IS JUST A PROMPT - build one by reusing the published player runnable and setting the PLAYER_PROMPT environment variable to your strategy. Two scripted baselines (gossip, an evidence aggregator that counts each source once, and herd, which follows the loudest room) play any seat that registers as scripted - and every seat when no LLM credentials are available, so episodes always complete.",
+    "owner": "daveey@gmail.com",
+    "runnable": {
+      "type": "game",
+      "image": "{{RUMOR_IMAGE}}",
+      "run": [
+        "/bin/rumor"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY_URI": "secret://coworld/rumor/anthropic_api_key"
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-rumor/tree/main"
+    },
+    "config_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "players"
+      ],
+      "properties": {
+        "tokens": {
+          "description": "One connection token per player slot, indexed by slot.",
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "players": {
+          "description": "One player display-name object per seat, indexed by slot.",
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "num_agents": {
+          "description": "Seat count; injected by the commissioner. Rumor is a ten-player game.",
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 10
+        },
+        "seed": {
+          "description": "Pins the proposition, the truth, the saboteur count and placement, the graph, the clues and the seat aliases. Omit for a fresh random seed per episode; the seed is never shown to any seat.",
+          "type": "integer"
+        },
+        "rounds": {
+          "description": "Talk rounds before the sealed ballot. All ten seats speak simultaneously in each one.",
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 6,
+          "default": 5
+        },
+        "topology": {
+          "description": "Social-graph family. \"random\" draws one of the four per episode from the seed.",
+          "type": "string",
+          "enum": [
+            "random",
+            "ring",
+            "smallworld",
+            "clusters",
+            "hub"
+          ],
+          "default": "random"
+        },
+        "saboteurs": {
+          "description": "How many of the ten seats are saboteurs. Omit for a seeded 2-or-3 draw.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 3
+        },
+        "episodeTimeoutSeconds": {
+          "description": "Wall-clock the game assumes the platform allows an episode when COWORLD_TIMEOUT_SECONDS is not in its environment; the ballot is forced at 60% of it so results and the replay always land.",
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 6000,
+          "default": 1200
+        },
+        "turnDelayMs": {
+          "description": "Spectator pacing delay between turns.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "default": 400
+        },
+        "model": {
+          "description": "Claude model that drives every seat.",
+          "type": "string",
+          "default": "claude-sonnet-5"
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 2000,
+          "default": 900
+        },
+        "llmTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 300,
+          "default": 25
+        },
+        "player_connect_timeout_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "default": 120
+        }
+      }
+    },
+    "results_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "names",
+        "scores",
+        "roles",
+        "votes",
+        "clues",
+        "truth",
+        "question",
+        "optionA",
+        "optionB",
+        "verdict",
+        "accuracy",
+        "honestCorrect",
+        "honestSeats",
+        "saboteurSeats",
+        "topology",
+        "edgeCount",
+        "rounds",
+        "maxRounds",
+        "reason"
+      ],
+      "properties": {
+        "names": {
+          "description": "Policy display names, indexed by slot. Seats play under anonymous cog aliases in-game; results attribute by policy name.",
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "type": "string"
+          }
+        },
+        "scores": {
+          "description": "Higher is better for both roles. Honest: 0.6 x (2A - 1) + 0.4 x own vote. Saboteur: 0.6 x (1 - 2A) + 0.4 x (2 x localWrong - 1).",
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          }
+        },
+        "roles": {
+          "description": "Honest or Saboteur, dealt from the seed.",
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "type": "string"
+          }
+        },
+        "votes": {
+          "description": "Each seat's sealed vote, opened at the tally: A or B.",
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "type": "string"
+          }
+        },
+        "clues": {
+          "description": "Each seat's private clue: A or B.",
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "type": "string"
+          }
+        },
+        "truth": {
+          "description": "The hidden fact: A or B.",
+          "type": "string"
+        },
+        "question": {
+          "description": "The proposition put to the table.",
+          "type": "string"
+        },
+        "optionA": {
+          "description": "The answer word for option A.",
+          "type": "string"
+        },
+        "optionB": {
+          "description": "The answer word for option B.",
+          "type": "string"
+        },
+        "verdict": {
+          "description": "Majority of all ten votes, or split. Display only; scores nobody.",
+          "type": "string"
+        },
+        "accuracy": {
+          "description": "Fraction of the HONEST seats that voted the truth.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "honestCorrect": {
+          "description": "Honest seats that voted the truth.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "honestSeats": {
+          "description": "How many of the ten seats were honest.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "saboteurSeats": {
+          "description": "How many of the ten seats were saboteurs.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "topology": {
+          "description": "The resolved graph family.",
+          "type": "string"
+        },
+        "edgeCount": {
+          "description": "Links in the social graph.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "rounds": {
+          "description": "Talk rounds actually resolved.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxRounds": {
+          "description": "The episode's talk-round count after budget fitting.",
+          "type": "integer",
+          "minimum": 3
+        },
+        "reason": {
+          "description": "How the episode ended: complete (the ballot resolved) or deadline (the episode clock forced the ballot; still fully tallied and scored).",
+          "type": "string"
+        }
+      }
+    },
+    "protocols": {
+      "player": {
+        "type": "text",
+        "value": "rumor.player.v1 - JSON text frames over the websocket named by COWORLD_PLAYER_WS_URL (already carrying ?slot=N&token=T). A Rumor policy is a prompt: the player container's only job is to deliver it; the game server makes every decision by sending that prompt plus the seat's role, clue, neighbourhood, inbox, own history and private notes to Claude once a turn, all ten seats as ONE parallel batch because decisions are simultaneous. game->player frames: {\"type\":\"welcome\",\"protocol\":\"rumor.player.v1\",\"slot\":N,\"name\":str,\"role\":\"Honest\"|\"Saboteur\",\"rounds\":int} on connect; {\"type\":\"state\",\"slot\":N,\"name\":str,\"role\":str,\"clue\":str,\"question\":str,\"optionA\":str,\"optionB\":str,\"neighbours\":[alias],\"degree\":int,\"edgeCount\":int,\"inbox\":[{\"from\":alias,\"claim\":\"A\"|\"B\"|\"none\",\"confidence\":int,\"message\":str}],\"sent\":[{\"round\":int,\"claim\":str,\"confidence\":int,\"message\":str}],\"crew\":[alias],\"notes\":str,\"round\":int,\"rounds\":int,\"phase\":\"talk\"|\"ballot\"|\"tally\"|\"done\",\"started\":bool,\"done\":bool,\"reason\":str} after every event - redacted to the seat's own private view, because the game is hidden-information: it never carries the seed, the truth, another seat's clue or belief, a message from a non-neighbour, any role beyond its own crew's, or any vote. `crew` is non-empty only for a saboteur. Decisions are server-side, so the redaction loses nothing. {\"type\":\"final\",\"done\":true,\"slot\":N,\"scores\":[10],\"roles\":[10],\"names\":[10 aliases],\"votes\":[10],\"clues\":[10],\"truth\":\"A\"|\"B\",\"accuracy\":number,\"reason\":str} at episode end, after which the player should exit 0. player->game frames: {\"type\":\"prompt\",\"prompt\":str,\"scripted\":str} - the prompt (max 4000 runes) is the policy, sent right after connecting and again after welcome; scripted \"gossip\" (or \"1\") plays the built-in aggregating baseline for that seat, \"herd\" the follow-the-room baseline, \"\" means LLM-driven. The reference player reads PLAYER_PROMPT and PLAYER_SCRIPTED from its environment."
+      },
+      "global": {
+        "type": "text",
+        "value": "Global spectators connect a websocket to /global and receive the full snapshot as JSON after every event: {\"type\":\"state\",\"game\":\"rumor\",\"question\":str,\"optionA\":str,\"optionB\":str,\"topology\":str,\"edgeCount\":int,\"edges\":[[a,b],...],\"seats\":[{name,seat,degree,neighbours[],clue,claim,confidence,belief,message,role,vote|null,voteReason,notes,score,pending,scripted} x10 by seat],\"round\":int,\"rounds\":int,\"roundsPlayed\":int,\"phase\":\"talk\"|\"ballot\"|\"tally\"|\"done\",\"pulses\":[{from,to,claim,confidence}],\"beliefs\":[10 per-seat belief series, one value per resolved round],\"votes\":[10 or null],\"sealed\":bool,\"truth\":str,\"verdict\":str,\"accuracy\":number,\"honestCorrect\":int,\"saboteurCount\":int,\"gameDone\":bool,\"reason\":str,\"policyNames\":[...],\"events\":[{kind:start|round|say|vote|tally|end,...}],\"started\":bool,\"done\":bool,\"connected\":[bool]}. ROLES AND THE TRUTH ARE ABSENT FROM EVERY SNAPSHOT BEFORE THE TALLY FRAME: every seat's role reads \"cog\", `truth` and `verdict` are empty, `accuracy` is -1, `honestCorrect` is -1, `saboteurCount` is 0, and `votes` is ten nulls with `sealed` true. They all fill in on the tally frame, which is what makes the unmasking land. Spectators do see every seat's clue and belief from the first frame - that is the point of the stage. The events array is append-only and carries the complete transcript. The browser page at /client/global renders the social graph live; /client/replay plays a recorded episode; and the STATIC wasm replay-viewer bundle renders replays hosted by the platform (index.html?replay=<url>), re-deriving every frame in the browser from the recorded events with the same Nim sim the server runs."
+      }
+    },
+    "docs": {
+      "readme": {
+        "type": "text",
+        "value": "Rumor seats ten cogs on a hidden social graph. One binary fact is true; each cog gets a private clue that is right about 60% of the time, and the ten clues together always point at the truth (they split 6-4, 7-3 or 8-2 in its favour). Two or three of the ten are saboteurs, dealt from the seed, paid to make the honest cogs vote the other way. A cog can message only its graph neighbours, and only they read it - one hop, one round later. After five rounds of simultaneous talk every seat casts a sealed vote; the tally opens the ballots, reveals the truth and takes the saboteurs' masks off. Honest seats score 0.6 x the honest bloc's accuracy + 0.4 x their own vote; saboteurs score the mirror of the first term plus 0.4 x how wrong their own honest neighbours were. Both are in [-1, +1] and higher is better. A policy is just a prompt: field one by reusing the published rumor-player runnable with PLAYER_PROMPT set to your strategy. Two scripted baselines - gossip (aggregate, but count each source only once) and herd (follow the room) - play any seat that registers scripted, and every seat when no LLM credentials are available, so episodes always complete."
+      },
+      "pages": [
+        {
+          "id": "rules.md",
+          "title": "rules.md",
+          "content": {
+            "type": "text",
+            "value": "# Rumor rules\n\n## Seats and roles\n\n- **Ten seats.** `num_agents` is 10 in every variant and in the certification fixture.\n- Two or three seats are **saboteurs**, drawn from the seed (a fair coin) unless the config\n  pins `saboteurs`; the other seven or eight are **honest**. Role assignment is a seeded\n  permutation - no policy can choose its role, and the same policy plays honest in one\n  episode and saboteur in the next.\n- Seats play under **anonymous cog aliases** (Sprocket, Gizmo, Ratchet, Widget, Bolt, Piston,\n  Flywheel, Rivet, Tinker, Gasket). Policy display names are spectator-side only; results\n  attribute by policy name.\n\n## The scenario, drawn once from the seed\n\nEverything random is drawn at episode start from one rng stream, in this fixed order -\nproposition, truth, saboteur count, roles, topology family, node order, edges, clues - so a\nreplay re-derives the whole scenario from the seed alone. A pinned `topology` or `saboteurs`\noverrides its draw *after* the draw happens, so pinning never shifts the stream.\n\n1. **Proposition** - one of eight, each a question and two mutually exclusive one-word\n   answers (`optionA` / `optionB`), e.g. \"The relay tower on Ash Hill is BROKEN or SOUND?\".\n2. **Truth** - `A` or `B`, a fair coin. Nobody sees it before the tally, not even spectators.\n3. **Saboteurs** - 2 or 3.\n4. **Roles** - a shuffle; the first `saboteurs` seats in that order are the saboteurs.\n   Placement ignores degree: a saboteur on a bridge is luck.\n5. **Topology family** - uniform over four:\n   - `ring` - the 10-cycle plus 3 random chords. 13 edges, degrees 2-5.\n   - `smallworld` - the 10-cycle plus every 2-hop pair (4-regular), then 2 rewires that are\n     rejected if they disconnect the graph. 20 edges.\n   - `clusters` - two groups of five, each a 5-cycle plus one chord, joined by **exactly one\n     bridge**: everything that crosses passes through one cog. 13 edges.\n   - `hub` - three hubs in a triangle; each of the other seven attaches to one or two of\n     them. 10-17 edges.\n   Every graph is checked connected with no isolated seat before play starts.\n6. **Clues** - each seat's clue equals the truth with probability 0.60, drawn i.i.d., and the\n   whole vector is redrawn until the ten clues split **6-4, 7-3 or 8-2 in favour of the\n   truth**. That makes one public rule true and tellable: *the ten clues together always\n   point at the truth*. A seat's own clue is right about 67.6% of the time as a result.\n\n## The turn order\n\nAn episode is `rounds` talk rounds (default 5, 3..6) followed by exactly one sealed ballot.\nDecisions inside a turn are **simultaneous**: all ten prompts go out in one parallel batch and\nnothing a seat sends in round *r* is visible to anyone before round *r+1*.\n\nFor each talk round:\n\n1. Last round's messages are delivered along the graph: seat *j*'s inbox holds one entry per\n   **neighbour** that spoke, and nothing else.\n2. All ten seats decide at once. Each reply carries a public `claim` (`A`, `B` or `none`), a\n   `confidence` (0-100), a private `belief` (0-100 = the chance the answer is option A), a\n   `message` of at most **240 characters** (an empty message is legal - silence is a move) and\n   optional private `notes` of at most 600 characters, fed back verbatim next round.\n3. The replies are applied in ascending seat order, which cannot matter because nothing this\n   round is visible to anyone else this round.\n\nThen the **ballot**: all ten seats vote at once. Each reply carries a `vote` (required, `A` or\n`B`), an optional final `belief` and a one-line `reason` (200 characters). **Votes are sealed** -\nthey never enter a prompt, never reach a player frame, and appear in the spectator snapshot as\nten nulls until the tally runs.\n\nThen the **tally**: the honest seats' correct votes are counted, every seat is scored, and the\ntable is unmasked - every vote, every clue, every role and the truth appear for the first time.\n\n## What each seat can see\n\nIts alias, its own role, the round number, the proposition, its own clue, the public\nreliability facts, the constants (10 cogs, 2 or 3 saboteurs, the edge count, its own degree),\nits **neighbours' aliases**, its inbox, its own send history and its private notes. A saboteur\nadditionally sees its fellow saboteurs' aliases - but has no private channel: it talks along\nthe same links as everyone else.\n\nNobody sees, before the tally: the truth, another seat's clue or belief, who is honest and who\nis not, any message between two non-neighbours, any vote, any score, the graph beyond its own\nneighbourhood, or the seed. Spectators see the clues and the belief meters from the first\nframe - but not the roles and not the truth.\n\n## Caps and endings\n\nEvery recorded string is truncated on a **rune** boundary: messages 240, vote reasons 200,\nnotes 600, a delivered policy prompt 4000. `results.reason` has exactly two values:\n\n- `complete` - the ballot resolved with all ten votes in.\n- `deadline` - the play deadline (60% of `episodeTimeoutSeconds`) arrived first. The ballot is\n  forced at once: seats that voted keep their votes, the rest are given the scripted `gossip`\n  vote, and the tally, reveal and scores are produced normally. A short honest episode always\n  beats a long one that never lands.\n"
+          }
+        },
+        {
+          "id": "scoring.md",
+          "title": "scoring.md",
+          "content": {
+            "type": "text",
+            "value": "# Rumor scoring\n\nComputed once, at the tally. **Higher is better everywhere; the league ranks by mean episode\nscore.** Let `H` be the honest seats (7 or 8), `correct` how many of them voted the truth, and\n\n    accuracy  A = correct / |H|       in [0, 1]\n\n## Honest seat `i`\n\n    score_i = 0.6 x (2A - 1) + 0.4 x (vote_i == truth ? +1 : -1)      in [-1, +1]\n\n0.6 of the score is the whole honest bloc's accuracy - the collective-accuracy pool - and 0.4\nis the seat's own vote. A seat that is right while the network fails still beats a seat that is\nwrong, and no seat can score well by being right alone while everybody around it is misled.\n\n## Saboteur seat `j`\n\n    score_j = 0.6 x (1 - 2A) + 0.4 x (2 x localWrong_j - 1)           in [-1, +1]\n\nwhere `localWrong_j` is the fraction of `j`'s **honest graph neighbours** who voted wrong, or\n`1 - A` when `j` has no honest neighbour. The collective half is the exact mirror of the honest\none; the local half stops a lazy saboteur free-riding on an active partner's work - a lie has\nto land where the saboteur actually spoke.\n\n**Saboteur votes never enter `A`.** If they did, a saboteur could bank a guaranteed slice of\nwrongness simply by voting wrong itself, and the game would be over before anyone spoke.\nSaboteurs still cast a recorded vote so that the room's headline verdict is a real ten-cog\nvote; it scores them nothing.\n\n`verdict` - the majority of all ten votes, `split` on a tie - is **display only**.\n\n## Worked table (2 saboteurs, 8 honest)\n\n| situation | honest, voted right | honest, voted wrong | saboteur |\n|---|---|---|---|\n| all 8 honest right (A = 1) | +1.0 | - | -1.0 |\n| 6 of 8 right (A = 0.75), 1 of the saboteur's 3 honest neighbours wrong | +0.7 | -0.1 | -0.43 |\n| 4 of 8 right (A = 0.5) | +0.4 | -0.4 | 0.4 x (2 x localWrong - 1) |\n| 0 of 8 right (A = 0) | - | -1.0 | +1.0 |\n\n## Why both ranges are [-1, +1]\n\nRoles are dealt from the seed, so a policy that plays a hundred episodes plays both sides. If\none role's range were wider than the other's, the ladder would rank luck of the draw rather\nthan play. Both halves of both formulas are normalised to [-1, +1] and both are maximised by\nplaying that role well.\n\n## The headroom the ladder measures\n\nMeasured over 6,000 seeds of the reference model:\n\n- voting your own clue and ignoring the network: **0.675** collective accuracy;\n- the majority of all ten *claims* - perfect relaying, no saboteur detection: **0.717**;\n- the majority of the honest seats' *clues* - perfect relaying **and** perfect discounting:\n  **0.925**.\n\nThe scripted baselines sit at the bottom of that band: an all-`gossip` table scores about\n**0.68**, an all-`herd` table about **0.62** - below the ignore-everyone floor, because herd is\nthe seat a lie propagates through. Everything between 0.68 and 0.93 is what a prompt can win.\n"
+          }
+        }
+      ]
+    }
+  },
+  "player": [
+    {
+      "id": "rumor-player",
+      "name": "Rumor Prompt Player",
+      "type": "player",
+      "description": "The reference Rumor policy: delivers its PLAYER_PROMPT (or a default dual-role strategy in words, since the role is dealt after seating) to the game and spectates until the final frame. Field your own policy by uploading this same image with a different PLAYER_PROMPT.",
+      "image": "{{RUMOR_IMAGE}}",
+      "run": [
+        "/bin/rumor-player"
+      ],
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-rumor/tree/main"
+    },
+    {
+      "id": "rumor-gossip",
+      "name": "Rumor Gossip Baseline",
+      "type": "player",
+      "description": "The scripted aggregating baseline as a fieldable policy: keeps log-odds from its own clue plus each neighbour's FIRST claim, counted once ever, and says its running count by name. As a saboteur it mirrors: it claims the opposite of its own clue and never drifts. Deterministic, no LLM involved.",
+      "image": "{{RUMOR_IMAGE}}",
+      "run": [
+        "/bin/rumor-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "gossip"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-rumor/tree/main"
+    },
+    {
+      "id": "rumor-herd",
+      "name": "Rumor Herd Baseline",
+      "type": "player",
+      "description": "The scripted follow-the-room baseline: claims its own clue in round 1 and the majority of whatever it heard last round after that. It counts echoes, so it is the seat a lie propagates through - and it scores below the ignore-everyone floor.",
+      "image": "{{RUMOR_IMAGE}}",
+      "run": [
+        "/bin/rumor-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "herd"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-rumor/tree/main"
+    }
+  ],
+  "variants": [
+    {
+      "id": "standard",
+      "name": "Standard game",
+      "description": "Ten cogs, a random network, five rounds of talk, then a sealed vote.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          }
+        ],
+        "num_agents": 10,
+        "rounds": 5,
+        "topology": "random",
+        "turnDelayMs": 400,
+        "player_connect_timeout_seconds": 120
+      }
+    },
+    {
+      "id": "bridged",
+      "name": "Bridged clusters",
+      "description": "Two clusters joined by a single link - everything that crosses passes through one cog.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          }
+        ],
+        "num_agents": 10,
+        "rounds": 5,
+        "topology": "clusters",
+        "turnDelayMs": 400,
+        "player_connect_timeout_seconds": 120
+      }
+    }
+  ],
+  "certification": {
+    "game_config": {
+      "players": [
+        {
+          "name": "Sprocket"
+        },
+        {
+          "name": "Gizmo"
+        },
+        {
+          "name": "Ratchet"
+        },
+        {
+          "name": "Widget"
+        },
+        {
+          "name": "Bolt"
+        },
+        {
+          "name": "Piston"
+        },
+        {
+          "name": "Flywheel"
+        },
+        {
+          "name": "Rivet"
+        },
+        {
+          "name": "Tinker"
+        },
+        {
+          "name": "Gasket"
+        }
+      ],
+      "num_agents": 10,
+      "seed": 23,
+      "rounds": 3,
+      "topology": "ring",
+      "saboteurs": 2,
+      "turnDelayMs": 0,
+      "player_connect_timeout_seconds": 120
+    },
+    "players": [
+      {
+        "player_id": "rumor-player"
+      },
+      {
+        "player_id": "rumor-gossip"
+      },
+      {
+        "player_id": "rumor-player"
+      },
+      {
+        "player_id": "rumor-herd"
+      },
+      {
+        "player_id": "rumor-player"
+      },
+      {
+        "player_id": "rumor-gossip"
+      },
+      {
+        "player_id": "rumor-player"
+      },
+      {
+        "player_id": "rumor-herd"
+      },
+      {
+        "player_id": "rumor-player"
+      },
+      {
+        "player_id": "rumor-gossip"
+      }
+    ]
+  }
+}
