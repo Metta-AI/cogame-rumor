@@ -42,6 +42,5 @@ when isMainModule:
     config = sampleEpisode(config)
     echo "rumor: seats=", config.players.len,
       " rounds=", config.rounds,
-      " topology=", config.topology,
-      " model=", config.model
+      " topology=", config.topology
     runGameServer(config, runtimeConfig)
