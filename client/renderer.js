@@ -384,8 +384,13 @@
         var alpha = sayAge < BUBBLE_HOLD_MS * 0.6 ? 1 :
           Math.max(0.25, 1 - (sayAge - BUBBLE_HOLD_MS * 0.6) /
             (BUBBLE_HOLD_MS * 0.4));
+        // Keep the bubble inside the GRAPH, never over the belief tide or
+        // off the canvas: the seat at the bottom of the ring pushes its
+        // bubble straight down, which used to land it on top of the tide
+        // strip, and the seats at 3 and 9 o'clock pushed theirs off-frame.
         drawBubble(ctx, x, y, node.angle, size, opts.say,
-          Math.min(200, L.radius * 0.85), scale, alpha);
+          Math.min(200, L.radius * 0.85), scale, alpha,
+          { x: 2, y: L.graphTop, w: L.width - 4, h: L.graphH });
       }
     }
   }
@@ -546,7 +551,8 @@
 
   // Anchored at the node and pushed out along `angle` (the node's place on
   // the ring), with a tail pointing back at the speaker.
-  function drawBubble(ctx, nx, ny, angle, size, text, maxW, scale, alpha) {
+  function drawBubble(ctx, nx, ny, angle, size, text, maxW, scale, alpha,
+      bounds) {
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.font = Math.round(10 * scale) +
@@ -563,6 +569,16 @@
     var cy = ny + Math.sin(angle) * (reach + bh / 2);
     var x = cx - bw / 2;
     var y = cy - bh / 2;
+    if (bounds) {
+      if (bw > bounds.w || bh > bounds.h) { ctx.restore(); return; }
+      x = Math.max(bounds.x, Math.min(x, bounds.x + bounds.w - bw));
+      y = Math.max(bounds.y, Math.min(y, bounds.y + bounds.h - bh));
+      cx = x + bw / 2;
+      cy = y + bh / 2;
+    }
+    // The tail follows the bubble AFTER clamping, so it still points at the
+    // speaker instead of at where the bubble would have been.
+    angle = Math.atan2(cy - ny, cx - nx);
     ctx.shadowColor = "rgba(0,0,0,0.6)";
     ctx.shadowBlur = 5;
     ctx.fillStyle = PAPER;
