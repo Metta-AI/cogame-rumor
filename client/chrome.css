@@ -152,6 +152,21 @@ canvas#table {
 }
 .tbtn:hover { background: rgba(242, 232, 216, 0.2); }
 .tbtn.on { color: var(--amber); box-shadow: inset 0 -2px 0 var(--amber); }
+/* Playback-speed chips (0.5× / 1× / 2×), same print language as .tbtn. */
+.tspeed { display: flex; gap: 2px; }
+.tchip {
+  font-family: var(--pixfont);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--paper-dim);
+  background: rgba(242, 232, 216, 0.08);
+  border: none;
+  padding: 4px 7px;
+  cursor: pointer;
+  line-height: 1;
+}
+.tchip:hover { background: rgba(242, 232, 216, 0.2); }
+.tchip.on { color: var(--amber); box-shadow: inset 0 -2px 0 var(--amber); }
 .tpos {
   margin-left: auto;
   font-family: var(--pixfont);
