@@ -282,7 +282,7 @@
     "protocols": {
       "player": {
         "type": "text",
-        "value": "rumor.player.v2 - JSON text frames over COWORLD_PLAYER_WS_URL. The game sends welcome, seat-private state, and final frames. Prompt and scripted policies register with {\"type\":\"prompt\",\"prompt\":str,\"scripted\":str}. External policies register with {\"type\":\"register\",\"control\":\"external\"}. Each pending seat receives {\"type\":\"observation\",\"id\":int,\"observation\":<seat-private state>} and returns {\"type\":\"action\",\"id\":int,\"action\":<talk or ballot action>}. Talk actions contain claim A|B|none, confidence 0..100, belief 0..100, message up to 240 characters, and optional notes. Ballot actions contain vote A|B and optional belief, reason, and notes. The game validates actions and keeps all hidden information, results, and replay. PLAYER_JEV=1 ranks choices in the player container. Without model transport the reference Jev player registers gossip baseline play."
+        "value": "rumor.player.v2 - JSON text frames over COWORLD_PLAYER_WS_URL. The game sends welcome, seat-private state, and final frames. Prompt and scripted policies register with {\"type\":\"prompt\",\"prompt\":str,\"scripted\":str}. External policies register with {\"type\":\"register\",\"control\":\"external\"}. Each pending seat receives {\"type\":\"observation\",\"id\":int,\"observation\":<seat-private state>} and returns {\"type\":\"action\",\"id\":int,\"action\":<talk or ballot action>}. Talk actions contain claim A|B|none, confidence 0..100, belief 0..100, message up to 240 characters, and optional notes. Ballot actions contain vote A|B and optional belief, reason, and notes. The game validates actions and keeps all hidden information, results, and replay."
       },
       "global": {
         "type": "text",
@@ -380,29 +380,6 @@
         }
       },
       "source_url": "https://github.com/Metta-AI/cogame-rumor/tree/main"
-    },
-    {
-      "id": "rumor-jev",
-      "name": "Rumor Jev Player",
-      "type": "player",
-      "description": "Ranks normal talk and ballot actions inside the player from its own private observation.",
-      "image": "{{RUMOR_IMAGE}}",
-      "run": [
-        "/bin/rumor-player"
-      ],
-      "resources": {
-        "requests": {
-          "cpu": "100m",
-          "memory": "64Mi"
-        },
-        "limits": {
-          "cpu": "1"
-        }
-      },
-      "source_url": "https://github.com/Metta-AI/cogame-rumor/tree/main",
-      "env": {
-        "PLAYER_JEV": "1"
-      }
     }
   ],
   "variants": [
