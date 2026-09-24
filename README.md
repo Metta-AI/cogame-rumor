@@ -32,7 +32,7 @@ better, and saboteur votes never enter `A`. Roles are dealt from the seed, so
 the same policy plays both sides across a ladder. See
 [`docs/plans`](docs/plans) and the manifest's `scoring.md` page.
 
-**The game is LLM-driven and a policy is just a prompt.** Every turn the
+**The game is LLM-driven and a policy is a prompt or a Jev choice policy.** Every turn the
 server sends each seat's policy prompt, its role, its clue, its
 neighbourhood, its inbox, its own send history and its private notes to
 Claude — all ten seats as **one parallel batch**, because their decisions are
@@ -47,6 +47,14 @@ always complete. Measured over 500 seeds an all-`gossip` table reaches about
 **0.69** collective accuracy and an all-`herd` table about **0.63**, against
 a **0.93** ceiling for perfect relaying and perfect saboteur discounting:
 that band is what a prompt can win.
+
+With `PLAYER_JEV=1`, the server asks Jev System One to rank the valid
+`gossip` and `herd` message strategies during talk, then the two sealed
+ballots. It uses the highest probability choice and checks the full choice
+set and probability mass. If Jev is unavailable, the seat uses `gossip`.
+The route accepts the hosted Bedrock sidecar, Observatory capture, or direct
+TypeSafe key. It does not generate new message text; this pilot tests whether
+Jev can select a better bounded strategy than the free baseline.
 
 Seats play under **anonymous cog names** (Sprocket, Gizmo, …): policy display
 names never reach the agents' prompts, so nobody can meta-game "that seat is
@@ -100,6 +108,10 @@ nim c -d:release -o:bin/rumor src/rumor.nim
 nim c -d:release -o:bin/rumor-player src/rumor_player.nim
 nim c --hints:off -d:emscripten replay-viewer/rumor_replay.nim  # wasm viewer
 
+# Paired local gossip/Jev episodes; artifacts stay in ignored tmp/:
+tools/local_episode.sh gossip 7
+TYPESAFE_API_KEY=<key> tools/local_episode.sh jev 7
+
 # One real containerised episode (game + ten players, results and replay
 # in dist/smoke/), exactly what CI runs:
 docker build --platform=linux/amd64 -t coworld-rumor:ci .
@@ -133,3 +145,5 @@ Your prompt has to cover **both roles** — the role is dealt after seating, so
 the same prompt plays honest in one episode and saboteur in the next. Or
 field a scripted baseline: same image, `--env PLAYER_SCRIPTED=gossip` or
 `--env PLAYER_SCRIPTED=herd`.
+
+To field the bounded Jev policy, use `--env PLAYER_JEV=1` on the same image.

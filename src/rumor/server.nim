@@ -45,6 +45,7 @@ type
     sim: Sim
     prompts: seq[string]
     scripted: seq[ScriptKind]
+    jev: seq[bool]
     playerSockets: Table[int, WebSocket]
     socketSlots: Table[WebSocket, int]
     globalSockets: HashSet[WebSocket]
@@ -260,6 +261,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       var seats: seq[int]
       var prompts: seq[string]
       var scripted: seq[ScriptKind]
+      var jev: seq[bool]
       var ballot = false
       withLock stateLock:
         if state.sim.done:
@@ -278,6 +280,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         simCopy = state.sim
         prompts = state.prompts
         scripted = state.scripted
+        jev = state.jev
         ballot = state.sim.phase == phBallot
         echo "rumor: ", (if ballot: "sealed vote" else:
             "round " & $(state.sim.round + 1) & " of " & $config.rounds),
@@ -286,7 +289,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       ## The slow part (Claude, ONE parallel batch of ten) runs outside the
       ## lock on a snapshot; only this thread mutates the sim, so the
       ## snapshot cannot go stale.
-      let decisions = client.decideAll(simCopy, seats, prompts, scripted)
+      let decisions = client.decideAll(simCopy, seats, prompts, scripted, jev)
 
       withLock stateLock:
         ## Applied in ascending seat order — deterministic, and the order
@@ -298,7 +301,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           ## reply failed and fell back to the baseline is recorded as
           ## scripted too, not just a seat registered as one.
           let wasScripted = decision.scripted or
-            scripted[seat] != skNone or client.disabled
+            scripted[seat] != skNone or (client.disabled and not jev[seat])
           try:
             if ballot:
               state.sim.applyVote(seat, decision.vote, decision.belief,
@@ -468,6 +471,7 @@ proc websocketHandler(
           withLock stateLock:
             state.prompts[slot] = prompt
             state.scripted[slot] = scripted
+            state.jev[slot] = payload{"jev"}.getBool()
           echo "rumor: slot ", slot, " delivered a prompt (",
             prompt.len, " chars",
             (if scripted != skNone: ", scripted " & $scripted else: ""), ")"
@@ -541,6 +545,7 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   state.sim = initSim(config)
   state.prompts = newSeq[string](config.players.len)
   state.scripted = newSeq[ScriptKind](config.players.len)
+  state.jev = newSeq[bool](config.players.len)
   runtimeConfigGlobal = runtimeConfig
 
   let router = buildRouter(replayMode = false)

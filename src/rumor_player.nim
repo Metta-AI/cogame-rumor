@@ -1,4 +1,4 @@
-## Rumor player: a policy is just a prompt.
+## Rumor player: a policy is a prompt, a Jev choice policy, or scripted.
 ##
 ## Connects to the game, delivers its prompt (from PLAYER_PROMPT, or a
 ## default dual-role strategy), then idles until the final frame. All of
@@ -9,6 +9,8 @@
 ## aggregating baseline instead; PLAYER_SCRIPTED=herd as the
 ## follow-the-room baseline. The server plays those deterministically, no
 ## LLM.
+## PLAYER_JEV=1 asks the server to rank bounded messages and ballots with
+## Jev System One.
 ##
 ## To field your own policy, reuse this image and set PLAYER_PROMPT:
 ##   coworld upload-policy <rumor-image> --name my-rumor \
@@ -45,9 +47,11 @@ when isMainModule:
   if prompt.len == 0:
     prompt = DefaultPrompt
   let scripted = getEnv("PLAYER_SCRIPTED").strip()
+  let jev = getEnv("PLAYER_JEV") == "1"
 
   proc promptFrame(): string =
-    $ %*{"type": "prompt", "prompt": prompt, "scripted": scripted}
+    $ %*{"type": "prompt", "prompt": prompt, "scripted": scripted,
+      "jev": jev}
 
   echo "rumor player: connecting to game"
   let socket = newWebSocket(url)
