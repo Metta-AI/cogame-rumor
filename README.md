@@ -38,7 +38,7 @@ neighbourhood, its inbox, its own send history and its private notes to
 Claude — all ten seats as **one parallel batch**, because their decisions are
 simultaneous — and Claude answers with a claim, a confidence, a private
 belief, a message and new notes (and, on the last turn, a vote). Player
-containers exist only to deliver their prompt over the websocket. Two
+Prompt player containers deliver their prompt over the websocket. Two
 built-in **scripted baselines** — `gossip` (aggregate log-odds, counting each
 source exactly once) and `herd` (follow the majority of whatever you heard
 last round) — play any seat that registers as scripted, and every seat when
@@ -119,6 +119,24 @@ docker build --platform=linux/amd64 -t coworld-rumor:ci .
 # Export ANTHROPIC_API_KEY for real Claude play; omit for the scripted
 # baselines.
 ```
+
+The corrected player-side policy completed a paired native run on seeds 7–9,
+with nine gossip opponents on the same game build. Seat 0 was honest on seeds
+7 and 9 and a saboteur on seed 8.
+
+| Seed | Gossip score | Jev score | Jev calls |
+| --- | ---: | ---: | ---: |
+| 7 | −0.40 | 0.55 | 4 |
+| 8 | 0.143 | 0.143 | 4 |
+| 9 | −0.85 | −0.85 | 4 |
+
+All 12 Jev actions were accepted with no scripted fallback. The calls used
+7,268 input and 372 output tokens. At
+[OpenRouter's Jev 1.13 list rate](https://openrouter.ai/typesafe/jev-1.13/api),
+the input costs about $0.00031; this is a price proxy, not a TypeSafe invoice.
+Three seeds do not establish a win-rate. The final normal manifest passed all
+ten local Coworld checks with `coworld[auth]==0.1.53`; its prompt, gossip, and
+herd players ran without a Jev certification seat.
 
 Coworld packaging (from a metta checkout):
 
