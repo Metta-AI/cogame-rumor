@@ -1,8 +1,7 @@
-## Server-side decision making for Rumor. Prompt policies ask Claude for
-## free-form messages; Jev policies rank bounded messages and ballots.
-## The game server composes the seat's private view (role, clue,
+## Claude-backed decision making for Rumor. Each seat's policy is just a
+## prompt: the game server composes the seat's private view (role, clue,
 ## neighbourhood, inbox, own history, notes) plus that seat's prompt and
-## asks the selected model what it says (and, on the last turn, how it votes).
+## asks Claude what it says (and, on the last turn, how it votes).
 ##
 ## Decisions within a turn are SIMULTANEOUS by rule, so all ten requests go
 ## out as ONE parallel batch (curly.makeRequests); invalid replies are
@@ -68,10 +67,6 @@ type
     timeoutSeconds: int
     lastBatchAt: float      ## epoch seconds of the previous dispatch
     disabled*: bool   ## true once credentials are known-unavailable
-    jevEndpoint: string
-    jevKey: string
-    jevModel: string
-    jevTrajectoryId: string
 
 proc parseScriptKind*(text: string): ScriptKind =
   ## PLAYER_SCRIPTED values: "1"/"true"/"yes"/"gossip" play the aggregating
@@ -136,23 +131,6 @@ proc newLlmClient*(config: GameConfig): LlmClient =
   )
   let bedrockEndpoint = getEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME").strip()
   let bedrockToken = getEnv("AWS_BEARER_TOKEN_BEDROCK").strip()
-  let captureUrl = getEnv("METTA_CAPTURE_URL").strip()
-  let typesafeKey = getEnv("TYPESAFE_API_KEY").strip()
-  if bedrockEndpoint.len > 0:
-    result.jevEndpoint = bedrockEndpoint.strip(chars = {'/'}, leading = false)
-    result.jevModel = "typesafe/jev-1.13"
-  elif captureUrl.len > 0:
-    result.jevEndpoint = captureUrl.strip(chars = {'/'}, leading = false)
-    result.jevKey = getEnv("METTA_CAPTURE_KEY").strip()
-    if result.jevKey.len == 0:
-      raise newException(RumorError, "METTA_CAPTURE_KEY is required")
-    result.jevModel = "typesafe/jev-1.13"
-    result.jevTrajectoryId = "rumor-jev-" & $config.seed
-  elif typesafeKey.len > 0:
-    result.jevEndpoint = getEnv("TYPESAFE_BASE_URL",
-      "https://api.typesafe.ai").strip(chars = {'/'}, leading = false)
-    result.jevKey = typesafeKey
-    result.jevModel = getEnv("TYPESAFE_DEFAULT_MODEL", "jev-latest")
   if bedrockEndpoint.len > 0 or bedrockToken.len > 0:
     let region = getEnv("AWS_REGION",
       getEnv("AWS_DEFAULT_REGION", "us-west-2"))
@@ -176,8 +154,6 @@ proc newLlmClient*(config: GameConfig): LlmClient =
   else:
     result.transport = ltNone
     result.disabled = true
-    if result.jevEndpoint.len > 0:
-      result.curl = newCurly()
     echo "rumor llm: no LLM credentials; using scripted fallback"
 
 proc spaceBatch(client: LlmClient) =
@@ -587,61 +563,12 @@ proc applyProbe(sim: Sim, seat: int, decision: Decision) =
     probe.applyMessage(seat, decision.claim, decision.confidence,
       decision.belief, decision.message, decision.notes, false)
 
-proc jevCriteria*(sim: Sim, seat: int): JsonNode =
-  result = newJObject()
-  if sim.phase == phBallot:
-    result["A"] = %("Vote for " & sim.optionA)
-    result["B"] = %("Vote for " & sim.optionB)
-  else:
-    for kind in [skGossip, skHerd]:
-      let action = scriptedAction(sim, seat, kind)
-      result[$kind] = %("Claim " & sim.word(action.claim) &
-        " with confidence " & $action.confidence & ": " & action.message)
-
-proc jevDecision*(sim: Sim, seat: int, payload, criteria: JsonNode): Decision =
-  let answer = payload["answers"]["decision"]
-  let probabilities = answer["probabilities"]
-  let reported = answer["choice"].getStr()
-  if answer["type"].getStr() != "choice" or
-      not criteria.hasKey(reported) or probabilities.len != criteria.len:
-    raise newException(RumorError, "Jev returned the wrong choice set")
-  let confidence = answer["confidence"].getFloat()
-  if confidence < 0 or confidence > 1:
-    raise newException(RumorError, "Jev confidence is outside [0, 1]")
-  var total = 0.0
-  var best = -1.0
-  var choice = ""
-  for name, probability in probabilities.pairs:
-    if not criteria.hasKey(name):
-      raise newException(RumorError, "Jev returned an unknown choice")
-    let value = probability.getFloat()
-    if value < 0 or value > 1:
-      raise newException(RumorError, "Jev probability is outside [0, 1]")
-    total += value
-    if value > best:
-      best = value
-      choice = name
-  if abs(total - 1) > probabilities.len.float * 0.005 + 1e-6:
-    raise newException(RumorError, "Jev probabilities do not sum to one")
-  result = scriptedAction(sim, seat, skGossip)
-  if sim.phase == phBallot:
-    result.vote = choice
-    result.claim = choice
-  elif choice == $skHerd:
-    result = scriptedAction(sim, seat, skHerd)
-  result.scripted = false
-  echo "rumor jev: choice ", choice, " reported ", reported,
-    " confidence ", confidence, " model ", payload{"model"}.getStr(),
-    " input_tokens ", payload["usage"]{"input_tokens"}.getInt(),
-    " output_tokens ", payload["usage"]{"output_tokens"}.getInt()
-
 proc decideAll*(
   client: LlmClient,
   sim: Sim,
   seats: seq[int],
   prompts: seq[string],
-  scripted: seq[ScriptKind],
-  jev: seq[bool]
+  scripted: seq[ScriptKind]
 ): seq[Decision] =
   ## One decision per seat in `seats`, in order. Never raises: any failure
   ## falls back to the scripted baseline so the episode always advances.
@@ -657,22 +584,13 @@ proc decideAll*(
   var open: seq[int]     ## indexes into `seats` still undecided
   for index, seat in seats:
     let kind = scripted[seat]
-    if kind != skNone or (client.disabled and not jev[seat]) or
-        (jev[seat] and client.jevEndpoint.len == 0):
+    if kind != skNone or client.disabled:
       result[index] = scriptedAction(sim, seat,
         (if kind == skNone: skGossip else: kind))
     else:
       open.add(index)
   for attempt in 0 .. 1:
-    if client.disabled:
-      var enabled: seq[int]
-      for index in open:
-        if jev[seats[index]]:
-          enabled.add(index)
-        else:
-          result[index] = scriptedAction(sim, seats[index], skGossip)
-      open = enabled
-    if open.len == 0:
+    if open.len == 0 or client.disabled:
       break
     if attempt > 0:
       let elapsed = epochTime() - turnStart
@@ -681,12 +599,7 @@ proc decideAll*(
         echo "rumor llm: turn budget spent after ", elapsed.int,
           "s; the remaining seats take their scripted move"
         break
-    var hasPromptSeat = false
-    for index in open:
-      if not jev[seats[index]]:
-        hasPromptSeat = true
-    if hasPromptSeat:
-      client.spaceBatch()
+    client.spaceBatch()
     var batch: RequestBatch
     for index in open:
       let seat = seats[index]
@@ -694,52 +607,18 @@ proc decideAll*(
       if attempt > 0:
         user.add("\nYour previous reply was invalid. Respond with ONLY " &
           "the requested JSON object.")
-      if jev[seat]:
-        var headers: HttpHeaders
-        headers["content-type"] = "application/json"
-        if client.jevKey.len > 0:
-          headers["authorization"] = "Bearer " & client.jevKey
-        else:
-          headers["x-coworld-player-slot"] = $seat
-        if client.jevTrajectoryId.len > 0:
-          headers["x-metta-trajectory-id"] =
-            client.jevTrajectoryId & "-" & $seat
-        let body = %*{
-          "model": client.jevModel,
-          "state": sim.systemPrompt(seat) & "\n\n" & user,
-          "questions": {"decision": {
-            "type": "choice",
-            "instructions": (if ballot:
-              "Choose the sealed vote that best advances your role's score, using your clue and distinct reports rather than repeated echoes."
-              else:
-              "Choose the message strategy that best advances your role's score by sharing or influencing distinct evidence across your neighbours."),
-            "criteria": sim.jevCriteria(seat)
-          }}
-        }
-        batch.post(client.jevEndpoint & "/v1/systemone", headers, $body,
-          $index)
-      else:
-        let request = client.requestFor(systemPrompt(sim, seat), user)
-        batch.post(request.url, request.headers, request.body, $index)
+      let request = client.requestFor(systemPrompt(sim, seat), user)
+      batch.post(request.url, request.headers, request.body, $index)
     let responses = client.curl.makeRequests(batch, client.timeoutSeconds)
     var stillOpen: seq[int]
     for position, index in open:
       let seat = seats[index]
       try:
+        let text = client.textOf(responses[position].response,
+          responses[position].error, batch[position].url)
+        let node = extractJsonObject(text)
         let decision =
-          if jev[seat]:
-            let response = responses[position].response
-            let error = responses[position].error
-            if error.len > 0 or response.code < 200 or response.code >= 300:
-              raise newException(RumorError, "Jev transport failed: " &
-                error & " HTTP " & $response.code)
-            sim.jevDecision(seat, parseJson(response.body),
-              sim.jevCriteria(seat))
-          else:
-            let text = client.textOf(responses[position].response,
-              responses[position].error, batch[position].url)
-            let node = extractJsonObject(text)
-            if ballot: sim.parseVoteReply(node) else: sim.parseTalkReply(node)
+          if ballot: sim.parseVoteReply(node) else: sim.parseTalkReply(node)
         sim.applyProbe(seat, decision)
         result[index] = decision
       except CatchableError as error:

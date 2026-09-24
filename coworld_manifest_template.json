@@ -282,7 +282,7 @@
     "protocols": {
       "player": {
         "type": "text",
-        "value": "rumor.player.v1 - JSON text frames over the websocket named by COWORLD_PLAYER_WS_URL (already carrying ?slot=N&token=T). A Rumor policy is a prompt: the player container's only job is to deliver it; the game server makes every decision by sending that prompt plus the seat's role, clue, neighbourhood, inbox, own history and private notes to Claude once a turn, all ten seats as ONE parallel batch because decisions are simultaneous. game->player frames: {\"type\":\"welcome\",\"protocol\":\"rumor.player.v1\",\"slot\":N,\"name\":str,\"role\":\"Honest\"|\"Saboteur\",\"rounds\":int} on connect; {\"type\":\"state\",\"slot\":N,\"name\":str,\"role\":str,\"clue\":str,\"question\":str,\"optionA\":str,\"optionB\":str,\"neighbours\":[alias],\"degree\":int,\"edgeCount\":int,\"inbox\":[{\"from\":alias,\"claim\":\"A\"|\"B\"|\"none\",\"confidence\":int,\"message\":str}],\"sent\":[{\"round\":int,\"claim\":str,\"confidence\":int,\"message\":str}],\"crew\":[alias],\"notes\":str,\"round\":int,\"rounds\":int,\"phase\":\"talk\"|\"ballot\"|\"tally\"|\"done\",\"started\":bool,\"done\":bool,\"reason\":str} after every event - redacted to the seat's own private view, because the game is hidden-information: it never carries the seed, the truth, another seat's clue or belief, a message from a non-neighbour, any role beyond its own crew's, or any vote. `crew` is non-empty only for a saboteur. Decisions are server-side, so the redaction loses nothing. {\"type\":\"final\",\"done\":true,\"slot\":N,\"scores\":[10],\"roles\":[10],\"names\":[10 aliases],\"votes\":[10],\"clues\":[10],\"truth\":\"A\"|\"B\",\"accuracy\":number,\"reason\":str} at episode end, after which the player should exit 0. player->game frames: {\"type\":\"prompt\",\"prompt\":str,\"scripted\":str} - the prompt (max 4000 runes) is the policy, sent right after connecting and again after welcome; scripted \"gossip\" (or \"1\") plays the built-in aggregating baseline for that seat, \"herd\" the follow-the-room baseline, \"\" means LLM-driven. The reference player reads PLAYER_PROMPT and PLAYER_SCRIPTED from its environment."
+        "value": "rumor.player.v2 - JSON text frames over COWORLD_PLAYER_WS_URL. The game sends welcome, seat-private state, and final frames. Prompt and scripted policies register with {\"type\":\"prompt\",\"prompt\":str,\"scripted\":str}. External policies register with {\"type\":\"register\",\"control\":\"external\"}. Each pending seat receives {\"type\":\"observation\",\"id\":int,\"observation\":<seat-private state>} and returns {\"type\":\"action\",\"id\":int,\"action\":<talk or ballot action>}. Talk actions contain claim A|B|none, confidence 0..100, belief 0..100, message up to 240 characters, and optional notes. Ballot actions contain vote A|B and optional belief, reason, and notes. The game validates actions and keeps all hidden information, results, and replay. PLAYER_JEV=1 ranks choices in the player container. Without model transport the reference Jev player registers gossip baseline play."
       },
       "global": {
         "type": "text",
@@ -380,6 +380,29 @@
         }
       },
       "source_url": "https://github.com/Metta-AI/cogame-rumor/tree/main"
+    },
+    {
+      "id": "rumor-jev",
+      "name": "Rumor Jev Player",
+      "type": "player",
+      "description": "Ranks normal talk and ballot actions inside the player from its own private observation.",
+      "image": "{{RUMOR_IMAGE}}",
+      "run": [
+        "/bin/rumor-player"
+      ],
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-rumor/tree/main",
+      "env": {
+        "PLAYER_JEV": "1"
+      }
     }
   ],
   "variants": [
@@ -516,7 +539,7 @@
     },
     "players": [
       {
-        "player_id": "rumor-player"
+        "player_id": "rumor-jev"
       },
       {
         "player_id": "rumor-gossip"

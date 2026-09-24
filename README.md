@@ -48,13 +48,13 @@ always complete. Measured over 500 seeds an all-`gossip` table reaches about
 a **0.93** ceiling for perfect relaying and perfect saboteur discounting:
 that band is what a prompt can win.
 
-With `PLAYER_JEV=1`, the server asks Jev System One to rank the valid
-`gossip` and `herd` message strategies during talk, then the two sealed
-ballots. It uses the highest probability choice and checks the full choice
-set and probability mass. If Jev is unavailable, the seat uses `gossip`.
-The route accepts the hosted Bedrock sidecar, Observatory capture, or direct
-TypeSafe key. It does not generate new message text; this pilot tests whether
-Jev can select a better bounded strategy than the free baseline.
+With `PLAYER_JEV=1`, the player receives its private observation and asks
+Jev System One to rank two talk claims or two sealed votes. It returns an
+ordinary action to the game, which validates and applies it. The player
+checks the full probability mass. Without model transport, it registers
+the `gossip` baseline. The policy accepts the hosted Bedrock sidecar,
+Observatory capture, or a direct TypeSafe key. Earlier pilot results used
+server-side Jev decisions and are historical integration data.
 
 Seats play under **anonymous cog names** (Sprocket, Gizmo, …): policy display
 names never reach the agents' prompts, so nobody can meta-game "that seat is
@@ -75,8 +75,8 @@ and scored.
 - `src/rumor/llm.nim` — Claude client (one parallel batch per turn, a
   26 s rate governor, an 80 s hard turn budget) + the scripted baselines
 - `src/rumor/server.nim` — mummy HTTP/WS server (player, global, replay)
-- `src/rumor_player.nim` — the prompt-delivery player (`PLAYER_PROMPT` /
-  `PLAYER_SCRIPTED` env)
+- `src/rumor_player.nim` — prompt, scripted, or external-action player
+- `src/rumor/jev_policy.nim` — player-side System One action ranking
 - `client/` — shared canvas renderer + global/player/replay pages (the
   bullwhip broadcast chrome around the social-graph stage and the belief tide)
 - `replay-viewer/` — static wasm replay viewer (`?replay=<url>`)

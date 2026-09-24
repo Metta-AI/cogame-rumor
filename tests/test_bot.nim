@@ -109,29 +109,6 @@ suite "scripted baselines":
       check abs(sim.gossipLogOdds(seat) - (base + ClaimLogOdds)) < 1e-9
 
 suite "llm fallback and parsing":
-  test "Jev ranks the exact message choice set and rejects invalid mass":
-    let sim = initSim(fixture(9))
-    let criteria = sim.jevCriteria(0)
-    check criteria.len == 2
-    for selected in ["gossip", "herd"]:
-      let response = %*{"answers": {"decision": {
-        "type": "choice", "choice": selected, "confidence": 0.9,
-        "probabilities": {
-          "gossip": (if selected == "gossip": 0.7 else: 0.3),
-          "herd": (if selected == "herd": 0.7 else: 0.3)
-        }
-      }}, "usage": {"input_tokens": 10, "output_tokens": 2}}
-      let decision = sim.jevDecision(0, response, criteria)
-      check decision.message == scriptedAction(sim, 0,
-        (if selected == "gossip": skGossip else: skHerd)).message
-      check not decision.scripted
-    let bad = %*{"answers": {"decision": {
-      "type": "choice", "choice": "gossip", "confidence": 0.9,
-      "probabilities": {"gossip": 0.7, "herd": 0.7}
-    }}}
-    expect RumorError:
-      discard sim.jevDecision(0, bad, criteria)
-
   test "with no credentials every seat plays scripted, with no wait":
     let config = fixture(3, rounds = 3)
     let client = newLlmClient(config)
@@ -143,8 +120,7 @@ suite "llm fallback and parsing":
     var kinds = newSeq[ScriptKind](Seats)
     kinds[2] = skHerd
     let started = getMonoTime()
-    let decisions = client.decideAll(sim, seats, prompts, kinds,
-      newSeq[bool](Seats))
+    let decisions = client.decideAll(sim, seats, prompts, kinds)
     let elapsed = (getMonoTime() - started).inMilliseconds
     check decisions.len == Seats
     ## No network call and no rate-governor sleep.
@@ -348,8 +324,7 @@ suite "the retry path":
     ## result came from the fallback.
     let kinds = newSeq[ScriptKind](Seats)
     let started = getMonoTime()
-    let decisions = client.decideAll(sim, seats, prompts, kinds,
-      newSeq[bool](Seats))
+    let decisions = client.decideAll(sim, seats, prompts, kinds)
     let elapsed = (getMonoTime() - started).inMilliseconds.int
     check decisions.len == Seats
     ## Two dispatches with one rate-governor spacing between them, and the
