@@ -12,7 +12,7 @@
 ##   WS  /global                     - spectator snapshots
 ##   WS  /replay                     - replay payload (replay mode)
 ##
-## Player protocol (rumor.player.v1), all JSON text frames:
+## Player protocol (rumor.player.v2), all JSON text frames:
 ##   game -> player: {"type":"welcome","slot":N,"name":...,"role":...}
 ##                   {"type":"state",...} after every event (redacted to
 ##                   the seat's own private view: clue, neighbourhood,
@@ -21,6 +21,10 @@
 ##   player -> game: {"type":"prompt","prompt":"...","scripted":"gossip"}
 ##                   (max 4000 runes; scripted plays a built-in baseline
 ##                   for that seat: "gossip" / "1", or "herd")
+##   player -> game: {"type":"register","control":"external"}
+##   game -> external player: {"type":"observation","id":N,
+##                   "observation":<seat-private state>}
+##   external player -> game: {"type":"action","id":N,"action":{...}}
 
 import
   std/[json, locks, os, sets, strutils, tables, times, unicode],
@@ -45,6 +49,9 @@ type
     sim: Sim
     prompts: seq[string]
     scripted: seq[ScriptKind]
+    external: seq[bool]
+    decisionId: int
+    pendingActions: seq[JsonNode]
     playerSockets: Table[int, WebSocket]
     socketSlots: Table[WebSocket, int]
     globalSockets: HashSet[WebSocket]
@@ -260,6 +267,8 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       var seats: seq[int]
       var prompts: seq[string]
       var scripted: seq[ScriptKind]
+      var external: seq[bool]
+      var decisionId: int
       var ballot = false
       withLock stateLock:
         if state.sim.done:
@@ -278,6 +287,15 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         simCopy = state.sim
         prompts = state.prompts
         scripted = state.scripted
+        external = state.external
+        inc state.decisionId
+        decisionId = state.decisionId
+        state.pendingActions = newSeq[JsonNode](config.players.len)
+        for seat in seats:
+          if external[seat] and state.playerSockets.hasKey(seat):
+            state.playerSockets[seat].send($ %*{
+              "type": "observation", "id": decisionId,
+              "observation": state.playerFrameJson(seat)})
         ballot = state.sim.phase == phBallot
         echo "rumor: ", (if ballot: "sealed vote" else:
             "round " & $(state.sim.round + 1) & " of " & $config.rounds),
@@ -286,7 +304,33 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       ## The slow part (Claude, ONE parallel batch of ten) runs outside the
       ## lock on a snapshot; only this thread mutates the sim, so the
       ## snapshot cannot go stale.
-      let decisions = client.decideAll(simCopy, seats, prompts, scripted)
+      var modelKinds = newSeq[ScriptKind](scripted.len)
+      for seat in 0 ..< scripted.len:
+        modelKinds[seat] = scripted[seat]
+      for seat in seats:
+        if external[seat]:
+          modelKinds[seat] = skGossip
+      var decisions = client.decideAll(simCopy, seats, prompts, modelKinds)
+      let deadline = epochTime() + config.llmTimeoutSeconds.float
+      while epochTime() < deadline:
+        var ready = true
+        withLock stateLock:
+          for seat in seats:
+            if external[seat] and state.playerSockets.hasKey(seat) and
+                state.pendingActions[seat].isNil:
+              ready = false
+        if ready:
+          break
+        sleep(20)
+      for index, seat in seats:
+        if external[seat]:
+          var action: JsonNode
+          withLock stateLock:
+            action = state.pendingActions[seat]
+          if not action.isNil:
+            decisions[index] =
+              if ballot: simCopy.parseVoteReply(action)
+              else: simCopy.parseTalkReply(action)
 
       withLock stateLock:
         ## Applied in ascending seat order — deterministic, and the order
@@ -298,7 +342,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           ## reply failed and fell back to the baseline is recorded as
           ## scripted too, not just a seat registered as one.
           let wasScripted = decision.scripted or
-            scripted[seat] != skNone or client.disabled
+            scripted[seat] != skNone or decision.scripted
           try:
             if ballot:
               state.sim.applyVote(seat, decision.vote, decision.belief,
@@ -410,7 +454,7 @@ proc playerUpgradeHandler(request: Request) {.gcsafe.} =
         state.playerSockets.len, "/", state.config.tokens.len, ")"
       websocket.send($ %*{
         "type": "welcome",
-        "protocol": "rumor.player.v1",
+        "protocol": "rumor.player.v2",
         "slot": slot,
         "name": state.sim.names[slot],
         "role": state.sim.roleName(slot),
@@ -455,6 +499,31 @@ proc websocketHandler(
         return
       try:
         let payload = parseJson(message.data)
+        if payload{"type"}.getStr() == "register":
+          if payload["control"].getStr() != "external":
+            raise newException(RumorError, "unknown player control")
+          withLock stateLock:
+            state.external[slot] = true
+          return
+        if payload{"type"}.getStr() == "action":
+          withLock stateLock:
+            if state.external[slot] and payload["id"].getInt() ==
+                state.decisionId and state.pendingActions[slot].isNil:
+              let action = payload["action"]
+              let decision =
+                if state.sim.phase == phBallot:
+                  state.sim.parseVoteReply(action)
+                else:
+                  state.sim.parseTalkReply(action)
+              var probe = state.sim
+              if state.sim.phase == phBallot:
+                probe.applyVote(slot, decision.vote, decision.belief,
+                  decision.reason, decision.notes, false)
+              else:
+                probe.applyMessage(slot, decision.claim, decision.confidence,
+                  decision.belief, decision.message, decision.notes, false)
+              state.pendingActions[slot] = action
+          return
         if payload{"type"}.getStr() == "prompt":
           var prompt = payload{"prompt"}.getStr()
           if prompt.runeLen > MaxPromptLen:
@@ -468,6 +537,7 @@ proc websocketHandler(
           withLock stateLock:
             state.prompts[slot] = prompt
             state.scripted[slot] = scripted
+            state.external[slot] = false
           echo "rumor: slot ", slot, " delivered a prompt (",
             prompt.len, " chars",
             (if scripted != skNone: ", scripted " & $scripted else: ""), ")"
@@ -541,6 +611,8 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   state.sim = initSim(config)
   state.prompts = newSeq[string](config.players.len)
   state.scripted = newSeq[ScriptKind](config.players.len)
+  state.external = newSeq[bool](config.players.len)
+  state.pendingActions = newSeq[JsonNode](config.players.len)
   runtimeConfigGlobal = runtimeConfig
 
   let router = buildRouter(replayMode = false)
