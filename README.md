@@ -32,7 +32,7 @@ better, and saboteur votes never enter `A`. Roles are dealt from the seed, so
 the same policy plays both sides across a ladder. See
 [`docs/plans`](docs/plans) and the manifest's `scoring.md` page.
 
-**The game is LLM-driven and a policy is a prompt or a Jev choice policy.** Every turn the
+**The game supports prompt, scripted, and external action players.** Every turn the
 server sends each seat's policy prompt, its role, its clue, its
 neighbourhood, its inbox, its own send history and its private notes to
 Claude — all ten seats as **one parallel batch**, because their decisions are
@@ -48,13 +48,8 @@ always complete. Measured over 500 seeds an all-`gossip` table reaches about
 a **0.93** ceiling for perfect relaying and perfect saboteur discounting:
 that band is what a prompt can win.
 
-With `PLAYER_JEV=1`, the player receives its private observation and asks
-Jev System One to rank two talk claims or two sealed votes. It returns an
-ordinary action to the game, which validates and applies it. The player
-checks the full probability mass. Without model transport, it registers
-the `gossip` baseline. The policy accepts the hosted Bedrock sidecar,
-Observatory capture, or a direct TypeSafe key. Earlier pilot results used
-server-side Jev decisions and are historical integration data.
+An external player receives a private observation and submits complete talk
+and ballot actions. The game validates and applies them.
 
 Seats play under **anonymous cog names** (Sprocket, Gizmo, …): policy display
 names never reach the agents' prompts, so nobody can meta-game "that seat is
@@ -76,7 +71,6 @@ and scored.
   26 s rate governor, an 80 s hard turn budget) + the scripted baselines
 - `src/rumor/server.nim` — mummy HTTP/WS server (player, global, replay)
 - `src/rumor_player.nim` — prompt, scripted, or external-action player
-- `src/rumor/jev_policy.nim` — player-side System One action ranking
 - `client/` — shared canvas renderer + global/player/replay pages (the
   bullwhip broadcast chrome around the social-graph stage and the belief tide)
 - `replay-viewer/` — static wasm replay viewer (`?replay=<url>`)
@@ -108,9 +102,8 @@ nim c -d:release -o:bin/rumor src/rumor.nim
 nim c -d:release -o:bin/rumor-player src/rumor_player.nim
 nim c --hints:off -d:emscripten replay-viewer/rumor_replay.nim  # wasm viewer
 
-# Paired local gossip/Jev episodes; artifacts stay in ignored tmp/:
-tools/local_episode.sh gossip 7
-TYPESAFE_API_KEY=<key> tools/local_episode.sh jev 7
+# Local scripted episode; artifacts stay in ignored tmp/:
+tools/local_episode.sh 7
 
 # One real containerised episode (game + ten players, results and replay
 # in dist/smoke/), exactly what CI runs:
@@ -120,23 +113,8 @@ docker build --platform=linux/amd64 -t coworld-rumor:ci .
 # baselines.
 ```
 
-The corrected player-side policy completed a paired native run on seeds 7–9,
-with nine gossip opponents on the same game build. Seat 0 was honest on seeds
-7 and 9 and a saboteur on seed 8.
-
-| Seed | Gossip score | Jev score | Jev calls |
-| --- | ---: | ---: | ---: |
-| 7 | −0.40 | 0.55 | 4 |
-| 8 | 0.143 | 0.143 | 4 |
-| 9 | −0.85 | −0.85 | 4 |
-
-All 12 Jev actions were accepted with no scripted fallback. The calls used
-7,268 input and 372 output tokens. At
-[OpenRouter's Jev 1.13 list rate](https://openrouter.ai/typesafe/jev-1.13/api),
-the input costs about $0.00031; this is a price proxy, not a TypeSafe invoice.
-Three seeds do not establish a win-rate. The final normal manifest passed all
-ten local Coworld checks with `coworld[auth]==0.1.53`; its prompt, gossip, and
-herd players ran without a Jev certification seat.
+The normal prompt, gossip, and herd manifest passed all ten local Coworld
+checks with `coworld[auth]==0.1.53`.
 
 Coworld packaging (from a metta checkout):
 
@@ -163,5 +141,3 @@ Your prompt has to cover **both roles** — the role is dealt after seating, so
 the same prompt plays honest in one episode and saboteur in the next. Or
 field a scripted baseline: same image, `--env PLAYER_SCRIPTED=gossip` or
 `--env PLAYER_SCRIPTED=herd`.
-
-To field the bounded Jev policy, use `--env PLAYER_JEV=1` on the same image.
