@@ -1,46 +1,34 @@
 # Rumor training
 
-Rumor exports complete private candidate games using the same seat prompts
-and reply parser as the hosted player. Export requires a clean commit:
+Export complete games through the native simulator and hosted reply parser:
 
 ```bash
-nimby sync nimby.lock
-nim r --path:src tools/export_posttrain.nim /tmp/rumor-standard 10 1 standard mixed 3
-nim r --path:src tools/export_posttrain.nim /tmp/rumor-bridged 10 1 bridged mixed 3
+nim r --path:src tools/export_posttrain.nim /tmp/rumor-standard 10 1 standard mixed 0
+nim r --path:src tools/export_posttrain.nim /tmp/rumor-bridged 10 1 bridged mixed 0
 ```
 
-The exporter reads the selected certified `game_config` from
-`coworld_manifest_template.json`, runs ten seeded games per variant, and writes
-`trajectories.jsonl` and `manifest.json`. The shared Coworld SDK and application
-importer own review and dataset splits. The `rumor-SEED` family groups each
-scenario across variants and wording selections. The teacher
-alternates the published gossip and herd scripts by seat. Each assistant reply
-passes through the hosted parser before its action advances the simulator.
-The exporter refuses an existing output directory.
-
-Each private decision records exact messages and hashes, teacher response,
-selected attempt, and the normalized action recorded by the simulator.
-Completed episode events carry outcomes. Candidates require independent review
-before training admission; they are not ready-to-train datasets.
-
-The `standard` and `bridged` variants each produce 600 examples from ten
-games. These are imitation examples from scripted play; loss on this dataset
-does not measure competitive strength. The native game has text replies with
-free-form claims and notes. Its text bridge preserves that action space and
-collects all ten responses before resolving a simultaneous turn.
+Exports contain `train.jsonl`, `validation.jsonl`, and `manifest.json`.
+Every fifth scenario seed belongs to validation. Mixed wording cycles separately
+within each split so training receives all five presentations. The `rumor-SEED`
+family groups the same scenario across variants and wording selections.
+Rows retain exact message hashes and scripted gossip/herd responses. Each reply
+passes the hosted parser before advancing the game. Existing output directories
+are rejected. These are scripted imitation examples, not measured model strength.
 
 ## Wording and evaluation
 
-`promptVariant` defaults to `canonical`, preserving the original messages.
-`plain`, `numbered`, `questions`, and `reordered` paraphrase the introduction.
-`mixed` requires a nonnegative `promptSeed` and selects among those five once
-per episode, independently of scenario randomness. Private roles, clues,
-neighbours, strategic hints, scoring, schemas, operator instructions, and
-retry budgets remain fixed.
+`promptVariant` defaults to `canonical`, preserving original messages.
+The `rumor-rules-v2` bank varies the explanation of private evidence, its
+reliability, the collective majority guarantee, and deceptive seats.
+Role-specific rules, strategy guidance, scoring, action syntax, operator
+instructions, and retry budgets remain fixed. Hidden roles and clues remain
+private; wording selection does not consume simulation randomness.
 
-`heldout-briefing` and `heldout-reference` are evaluation-only wordings.
-Source exports reject them. Bridge resets require `split: "validation"` or
-`split: "test"` to use them.
+Training choices are `canonical`, `plain`, `numbered`, `questions`, and
+`reordered`. `mixed` requires a nonnegative `promptSeed`, selecting one of
+those five once per episode. `heldout-briefing` and `heldout-reference` are
+reserved for evaluation. Source exports reject both; bridge resets require
+`split: "validation"` or `split: "test"`.
 
 ```bash
 nim c -d:release --parallelBuild:1 --path:src -o:/tmp/rumor-bridge tools/train_bridge.nim
@@ -48,17 +36,11 @@ python3 tools/test_prompt_games.py /tmp/rumor-bridge
 ```
 
 The persistent JSONL command is `["/tmp/rumor-bridge", "<source>/coworld_manifest_template.json", "standard"]`
-with ten players. Use `bridged` for the second variant. Reset accepts the
-wording fields; `teacher` returns the published scripted action; `step` parses
-and executes text actions through the native simulator.
+with ten players. Use `bridged` for the other variant. `teacher` returns the
+scripted response; `step` parses it through the native game. All ten responses
+are collected before resolving a simultaneous turn.
 
-For private native evidence, set `RUMOR_HOST_TRACE_PATH` outside published
-artifact directories and set `RUMOR_SOURCE_REVISION` to the qualified commit.
-The host creates an exclusive owner-only file containing actual HTTP requests,
-responses, prompt hashes, retries, selected attempts, and applied events.
-This file includes operator instructions and must remain private.
-
-Deterministic fixtures verify mechanics and provenance, not model robustness.
+Complete-game comparisons check mechanics and provenance, not learned robustness.
 A learning comparison must freeze policies and inference settings, match game
-seeds, report incomplete games and fallbacks, and reserve held-out wordings
+seeds, report incomplete games and fallbacks, and reserve held-out wording
 until training choices are frozen.

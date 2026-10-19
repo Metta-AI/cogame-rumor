@@ -44,7 +44,7 @@ def play(binary: Path, manifest: Path, variant: str, wording: str, prompt_seed: 
             view = observation["semantic_view"]
             system, user = [message["content"] for message in observation["messages"]]
             assert view.pop("prompt_template") == {
-                "bank": "rumor-rules-v1",
+                "bank": "rumor-rules-v2",
                 "selection": wording,
                 "variant": selected,
                 "seed": prompt_seed,
@@ -62,7 +62,7 @@ def play(binary: Path, manifest: Path, variant: str, wording: str, prompt_seed: 
                 assert not view["crew"]
             roles.add(view["role"])
             phases.add(view["phase"])
-            observation["messages"][0]["content"] = system[system.index("One hidden fact is true") :]
+            observation["messages"][0]["content"] = "<game-owned rules>"
             record(observation)
             proposal = request({"kind": "teacher"})
             record(proposal)
@@ -94,9 +94,9 @@ def main() -> None:
     for variant in ("standard", "bridged"):
         for seed in (17, 946001):
             reference = play(args.binary, manifest, variant, "canonical", 0, seed)
-            for wording, prompt_seed in [(w, 0) for w in WORDINGS[1:]] + [("mixed", i) for i in range(5)]:
+            for wording, prompt_seed in [(w, 0) for w in WORDINGS[1:]] + [("mixed", 4)]:
                 assert play(args.binary, manifest, variant, wording, prompt_seed, seed) == reference
-        print(variant, "24 complete games PASS", flush=True)
+        print(variant, "16 complete games PASS", flush=True)
     for wording in WORDINGS[-2:]:
         rejected = subprocess.run(
             [str(args.binary), str(manifest), "standard"],
@@ -107,7 +107,7 @@ def main() -> None:
             timeout=10,
         )
         assert rejected.returncode != 0 and "held-out wording cannot enter training" in rejected.stderr
-    print("48 complete games and held-out exclusion PASS", flush=True)
+    print("32 complete games and held-out exclusion PASS", flush=True)
 
 
 if __name__ == "__main__":

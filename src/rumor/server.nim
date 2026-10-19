@@ -33,7 +33,7 @@ import
   mummy,
   mummy/routers,
   llm,
-  sim, prompts, evidence
+  sim
 
 const
   MaxPromptLen = 4000
@@ -205,10 +205,6 @@ proc finishEpisode(runtimeConfig: RuntimeConfig) =
 
   sleep(500)
   echo "rumor: writing results and replay"
-  let trace = getEnv("RUMOR_HOST_TRACE_PATH")
-  if trace.len > 0:
-    appendPrivate(trace, %*{"event_type": "episode_finished",
-      "source_revision": getEnv("RUMOR_SOURCE_REVISION"), "results": results})
   writeArtifact(
     runtimeConfig.resultsUri, $results, "application/json",
     "COGAME_RESULTS_METHOD"
@@ -226,11 +222,6 @@ proc finishEpisode(runtimeConfig: RuntimeConfig) =
 proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
   {.gcsafe.}:
     let config = state.config
-    let trace = getEnv("RUMOR_HOST_TRACE_PATH")
-    if trace.len > 0:
-      writePrivate(trace, $(%*{"event_type": "episode_started",
-        "source_revision": getEnv("RUMOR_SOURCE_REVISION"),
-        "prompt_configuration": selectionMetadata(config.promptSelection)}) & "\n")
     let gameStart = epochTime()
     let deadline = gameStart + config.playerConnectTimeoutSeconds
 
@@ -347,7 +338,6 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         ## to any other seat this round.
         for index, seat in seats:
           let decision = decisions[index]
-          let eventIndex = state.sim.events.len
           ## Provenance comes from the decision itself, so a seat whose LLM
           ## reply failed and fell back to the baseline is recorded as
           ## scripted too, not just a seat registered as one.
@@ -382,23 +372,6 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
             except RumorError as fallbackError:
               echo "rumor: scripted fallback rejected for seat ", seat,
                 " (", fallbackError.msg, "); skipping the seat"
-          if trace.len > 0:
-            doAssert state.sim.events.len > eventIndex, "no authoritative action event"
-            let applied = state.sim.events[eventIndex]
-            doAssert applied.seat == seat
-            let selected = if not applied.scripted and decision.selectedAttemptId.len > 0:
-                %decision.selectedAttemptId else: newJNull()
-            let origin = if external[seat] and not applied.scripted: "external"
-              elif scripted[seat] != skNone: "scripted-" & $scripted[seat]
-              elif selected.kind != JNull: "llm"
-              else: "scripted-gossip-fallback"
-            appendPrivate(trace, %*{"event_type": "host_decision", "decision_id": decisionId,
-              "round": simCopy.round, "phase": $simCopy.phase, "seat": seat,
-              "observation": simCopy.playerStateJson(seat),
-              "prompt_configuration": selectionMetadata(config.promptSelection),
-              "attempts": decision.attempts, "selected_attempt_id": selected,
-              "origin": origin, "executed_action": actionFromEvent(applied),
-              "event": eventToJson(applied)})
         state.broadcastLocked()
 
       ## Pace between turns so spectators can read the graph.

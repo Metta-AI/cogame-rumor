@@ -133,8 +133,8 @@ secret put) and uploads a `release-result` artifact.
 
 Game configuration supports episode-stable `promptVariant` and `promptSeed`.
 Canonical wording is the default. Mixed wording selects one of five
-introductions independently of the scenario seed. See [training and
-evaluation](TRAINING.md) for held-out wordings and private evidence.
+rule presentations independently of the scenario seed. See [training and
+evaluation](TRAINING.md) for held-out wordings and dataset splits.
 
 ```bash
 uv run coworld upload-policy <rumor image> --name my-rumor \
