@@ -156,6 +156,15 @@ jobs:
           nim c -d:release --parallelBuild:1 --path:src -o:/tmp/rumor-export tools/export_posttrain.nim
           python3 tools/test_source_prompts.py /tmp/rumor-export /tmp/rumor-source-panel
 
+      - name: Native prompt retry and fallback episodes
+        run: |
+          nim c -d:release --parallelBuild:1 --path:src -o:/tmp/rumor-game src/rumor.nim
+          nim c -d:release --parallelBuild:1 --path:src -o:/tmp/rumor-player src/rumor_player.nim
+          for mode in retry fallback; do
+            python3 tools/test_native_prompts.py /tmp/rumor-game /tmp/rumor-player \
+              "/tmp/rumor-native-$mode" --wording mixed --mode "$mode"
+          done
+
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs
   # end to end in raw docker with the certification fixture's seat mix.
