@@ -1,6 +1,5 @@
 ## Game-owned wording selection. Kept outside simulation/replay configuration.
 import std/[json, strutils]
-import crunchy
 
 type
   PromptVariant* = enum
@@ -38,11 +37,6 @@ proc promptSelection*(node: JsonNode): PromptSelection =
 proc selectedVariant*(selection: PromptSelection): PromptVariant =
   if selection.variant == pvMixed: PromptVariant(selection.seed mod 5)
   else: selection.variant
-
-proc promptMetadata*(selection: PromptSelection, system, user: string): JsonNode =
-  %*{"bank": PromptBankVersion, "variant": $selection.selectedVariant,
-    "selection": $selection.variant, "seed": selection.seed,
-    "system_sha256": sha256(system).toHex, "user_sha256": sha256(user).toHex}
 
 proc selectionMetadata*(selection: PromptSelection): JsonNode =
   %*{"bank": PromptBankVersion, "variant": $selection.selectedVariant,

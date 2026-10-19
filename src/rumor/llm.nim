@@ -23,6 +23,7 @@ import
   std/[json, math, os, strutils, times, unicode],
   bitworld/runtime,
   curly,
+  crunchy,
   sim, prompts, evidence
 
 const
@@ -266,6 +267,11 @@ proc aliasList(sim: Sim, seats: seq[int]): string =
   for seat in seats:
     names.add(sim.names[seat])
   if names.len == 0: "(nobody)" else: names.join(", ")
+
+proc promptMetadata*(selection: PromptSelection, system, user: string): JsonNode =
+  %*{"bank": PromptBankVersion, "variant": $selection.selectedVariant,
+    "selection": $selection.variant, "seed": selection.seed,
+    "system_sha256": sha256(system).toHex, "user_sha256": sha256(user).toHex}
 
 proc systemPrompt*(sim: Sim, seat: int): string =
   let me = sim.names[seat]
