@@ -23,7 +23,7 @@ import
   std/[json, math, os, strutils, times, unicode],
   bitworld/runtime,
   curly,
-  sim
+  sim, prompts, evidence
 
 const
   AnthropicUrl = "https://api.anthropic.com/v1/messages"
@@ -42,6 +42,8 @@ type
     skHerd = "herd"
 
   Decision* = object
+    attempts*: seq[JsonNode]
+    selectedAttemptId*: string
     claim*: string      ## talk turn: "A" | "B" | "none"
     confidence*: int    ## talk turn: 0..100
     belief*: int        ## 0..100, P(the answer is option A) in percent
@@ -269,8 +271,16 @@ proc systemPrompt*(sim: Sim, seat: int): string =
   let me = sim.names[seat]
   let clue = sim.word(sim.clue[seat])
   let neighbourNames = sim.aliasList(sim.neighbours(seat))
-  let shared = "You are " & me &
-    ", one of ten cogs on a rumour network. One hidden fact is true, and " &
+  let introduction = case sim.config.promptSelection.selectedVariant
+    of pvCanonical: "You are " & me & ", one of ten cogs on a rumour network. "
+    of pvPlain: "Your name is " & me & ". You are one of ten cogs exchanging rumours on a network. "
+    of pvNumbered: "1. Your name: " & me & ". 2. Your setting: a rumour network with ten cogs, including you. "
+    of pvQuestions: "Who are you? " & me & ", one of ten cogs. Where are you? On a rumour network. "
+    of pvReordered: "Ten cogs form a rumour network; you are the cog named " & me & ". "
+    of pvHeldoutBriefing: "Network briefing: you participate as " & me & ", one of its ten rumour-sharing cogs. "
+    of pvHeldoutReference: "Identity: " & me & ". Population: ten cogs, including you. Setting: a rumour network. "
+    of pvMixed: raise newException(ValueError, "mixed wording must resolve before rendering")
+  let shared = introduction & "One hidden fact is true, and " &
     "it is one of exactly two answers. " & sim.question & " — the answer " &
     "is either " & sim.optionA & " or " & sim.optionB & ".\n\nRules:\n" &
     "- Your private clue says " & clue & ". A clue is right about two " &
@@ -568,15 +578,17 @@ proc parseVoteReply*(sim: Sim, payload: JsonNode): Decision =
 
 # ---- Batched decisions ------------------------------------------------------
 
-proc applyProbe(sim: Sim, seat: int, decision: Decision) =
+proc applyProbe(sim: Sim, seat: int, decision: Decision): JsonNode =
   ## Reject an illegal reply here so the retry carries the hint.
   var probe = sim
+  let eventIndex = probe.events.len
   if sim.phase == phBallot:
     probe.applyVote(seat, decision.vote, decision.belief, decision.reason,
       decision.notes, false)
   else:
     probe.applyMessage(seat, decision.claim, decision.confidence,
       decision.belief, decision.message, decision.notes, false)
+  actionFromEvent(probe.events[eventIndex])
 
 proc decideAll*(
   client: LlmClient,
@@ -596,6 +608,8 @@ proc decideAll*(
   let turnStart = epochTime()
   let ballot = sim.phase == phBallot
   result = newSeq[Decision](seats.len)
+  let capture = getEnv("RUMOR_HOST_TRACE_PATH").len > 0
+  var attempts = newSeq[seq[JsonNode]](seats.len)
   var open: seq[int]     ## indexes into `seats` still undecided
   for index, seat in seats:
     let kind = scripted[seat]
@@ -628,20 +642,45 @@ proc decideAll*(
     var stillOpen: seq[int]
     for position, index in open:
       let seat = seats[index]
+      let attemptId = $sim.round & "-" & $sim.phase & "-" & $seat & "-" & $attempt
+      var text = ""
+      var failure = ""
+      var parsedAction = newJNull()
+      var accepted = false
       try:
-        let text = client.textOf(responses[position].response,
+        text = client.textOf(responses[position].response,
           responses[position].error, batch[position].url)
         let node = extractJsonObject(text)
         let decision =
           if ballot: sim.parseVoteReply(node) else: sim.parseTalkReply(node)
-        sim.applyProbe(seat, decision)
+        parsedAction = sim.applyProbe(seat, decision)
         result[index] = decision
+        result[index].selectedAttemptId = attemptId
+        accepted = true
       except CatchableError as error:
         echo "rumor llm: seat ", seat, " attempt ", attempt, " failed: ",
           error.msg
         stillOpen.add(index)
+        failure = error.msg
+      if capture:
+        let body = parseJson(batch[position].body)
+        let system = body["system"].getStr()
+        let user = body["messages"][0]["content"].getStr()
+        var headers = newJObject()
+        for header in responses[position].response.headers:
+          headers[header[0]] = %header[1]
+        attempts[index].add(%*{"attempt_id": attemptId,
+          "prompt": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+          "prompt_configuration": promptMetadata(sim.config.promptSelection, system, user),
+          "request": {"url": batch[position].url, "body": body},
+          "response": text, "raw_response": responses[position].response.body,
+          "response_headers": headers, "http_status": responses[position].response.code,
+          "transport_error": responses[position].error, "accepted": accepted,
+          "parsed_action": parsedAction, "failure": failure})
     open = stillOpen
   for index in open:
     let seat = seats[index]
     echo "rumor llm: seat ", seat, " falling back to scripted decision"
     result[index] = scriptedAction(sim, seat, skGossip)
+  if capture:
+    for index in 0 ..< result.len: result[index].attempts = attempts[index]

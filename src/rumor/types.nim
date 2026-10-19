@@ -1,4 +1,5 @@
 import std/[json, strutils]
+import prompts
 
 const
   ## Seats are fixed at ten; the config may not vary it.
@@ -12,6 +13,7 @@ type
     name*: string
 
   GameConfig* = object
+    promptSelection*: PromptSelection
     tokens*: seq[string]
     players*: seq[PlayerConfig]
     seed*: int
@@ -88,6 +90,7 @@ proc update*(config: var GameConfig, configJson: string) =
   let node = parseJson(configJson)
   if node.kind != JObject:
     raise newException(RumorError, "config must be a JSON object")
+  config.promptSelection = promptSelection(node)
   if node.hasKey("tokens"):
     config.tokens = @[]
     for token in node["tokens"]:

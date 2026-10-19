@@ -135,8 +135,47 @@
           "type": "number",
           "minimum": 0,
           "default": 120
+        },
+        "promptVariant": {
+          "type": "string",
+          "default": "canonical",
+          "enum": [
+            "canonical",
+            "plain",
+            "numbered",
+            "questions",
+            "reordered",
+            "heldout-briefing",
+            "heldout-reference",
+            "mixed"
+          ],
+          "description": "Episode-stable rules introduction, independent of scenario randomness."
+        },
+        "promptSeed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Independent wording seed, required for mixed selection."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "promptVariant"
+            ],
+            "properties": {
+              "promptVariant": {
+                "const": "mixed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "promptSeed"
+            ]
+          }
+        }
+      ]
     },
     "results_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -307,6 +346,14 @@
           "content": {
             "type": "text",
             "value": "# Rumor scoring\n\nComputed once, at the tally. **Higher is better everywhere; the league ranks by mean episode\nscore.** Let `H` be the honest seats (7 or 8), `correct` how many of them voted the truth, and\n\n    accuracy  A = correct / |H|       in [0, 1]\n\n## Honest seat `i`\n\n    score_i = 0.6 x (2A - 1) + 0.4 x (vote_i == truth ? +1 : -1)      in [-1, +1]\n\n0.6 of the score is the whole honest bloc's accuracy - the collective-accuracy pool - and 0.4\nis the seat's own vote. A seat that is right while the network fails still beats a seat that is\nwrong, and no seat can score well by being right alone while everybody around it is misled.\n\n## Saboteur seat `j`\n\n    score_j = 0.6 x (1 - 2A) + 0.4 x (2 x localWrong_j - 1)           in [-1, +1]\n\nwhere `localWrong_j` is the fraction of `j`'s **honest graph neighbours** who voted wrong, or\n`1 - A` when `j` has no honest neighbour. The collective half is the exact mirror of the honest\none; the local half stops a lazy saboteur free-riding on an active partner's work - a lie has\nto land where the saboteur actually spoke.\n\n**Saboteur votes never enter `A`.** If they did, a saboteur could bank a guaranteed slice of\nwrongness simply by voting wrong itself, and the game would be over before anyone spoke.\nSaboteurs still cast a recorded vote so that the room's headline verdict is a real ten-cog\nvote; it scores them nothing.\n\n`verdict` - the majority of all ten votes, `split` on a tie - is **display only**.\n\n## Worked table (2 saboteurs, 8 honest)\n\n| situation | honest, voted right | honest, voted wrong | saboteur |\n|---|---|---|---|\n| all 8 honest right (A = 1) | +1.0 | - | -1.0 |\n| 6 of 8 right (A = 0.75), 1 of the saboteur's 3 honest neighbours wrong | +0.7 | -0.1 | -0.43 |\n| 4 of 8 right (A = 0.5) | +0.4 | -0.4 | 0.4 x (2 x localWrong - 1) |\n| 0 of 8 right (A = 0) | - | -1.0 | +1.0 |\n\n## Why both ranges are [-1, +1]\n\nRoles are dealt from the seed, so a policy that plays a hundred episodes plays both sides. If\none role's range were wider than the other's, the ladder would rank luck of the draw rather\nthan play. Both halves of both formulas are normalised to [-1, +1] and both are maximised by\nplaying that role well.\n\n## The headroom the ladder measures\n\nMeasured over 6,000 seeds of the reference model:\n\n- voting your own clue and ignoring the network: **0.675** collective accuracy;\n- the majority of all ten *claims* - perfect relaying, no saboteur detection: **0.717**;\n- the majority of the honest seats' *clues* - perfect relaying **and** perfect discounting:\n  **0.925**.\n\nThe scripted baselines sit at the bottom of that band: an all-`gossip` table scores about\n**0.68**, an all-`herd` table about **0.62** - below the ignore-everyone floor, because herd is\nthe seat a lie propagates through. Everything between 0.68 and 0.93 is what a prompt can win.\n"
+          }
+        },
+        {
+          "id": "training.md",
+          "title": "Training and prompt evaluation",
+          "content": {
+            "type": "text",
+            "value": "# Rumor training\n\nRumor exports complete private candidate games using the same seat prompts\nand reply parser as the hosted player. Export requires a clean commit:\n\n```bash\nnimby sync nimby.lock\nnim r --path:src tools/export_posttrain.nim /tmp/rumor-standard 10 1 standard mixed 3\nnim r --path:src tools/export_posttrain.nim /tmp/rumor-bridged 10 1 bridged mixed 3\n```\n\nThe exporter reads the selected certified `game_config` from\n`coworld_manifest_template.json`, runs ten seeded games per variant, and writes\n`trajectories.jsonl` and `manifest.json`. The shared Coworld SDK and application\nimporter own review and dataset splits. The `rumor-SEED` family groups each\nscenario across variants and wording selections. The teacher\nalternates the published gossip and herd scripts by seat. Each assistant reply\npasses through the hosted parser before its action advances the simulator.\nThe exporter refuses an existing output directory.\n\nEach private decision records exact messages and hashes, teacher response,\nselected attempt, and the normalized action recorded by the simulator.\nCompleted episode events carry outcomes. Candidates require independent review\nbefore training admission; they are not ready-to-train datasets.\n\nThe `standard` and `bridged` variants each produce 600 examples from ten\ngames. These are imitation examples from scripted play; loss on this dataset\ndoes not measure competitive strength. The native game has text replies with\nfree-form claims and notes. Its text bridge preserves that action space and\ncollects all ten responses before resolving a simultaneous turn.\n\n## Wording and evaluation\n\n`promptVariant` defaults to `canonical`, preserving the original messages.\n`plain`, `numbered`, `questions`, and `reordered` paraphrase the introduction.\n`mixed` requires a nonnegative `promptSeed` and selects among those five once\nper episode, independently of scenario randomness. Private roles, clues,\nneighbours, strategic hints, scoring, schemas, operator instructions, and\nretry budgets remain fixed.\n\n`heldout-briefing` and `heldout-reference` are evaluation-only wordings.\nSource exports reject them. Bridge resets require `split: \"validation\"` or\n`split: \"test\"` to use them.\n\n```bash\nnim c -d:release --parallelBuild:1 --path:src -o:/tmp/rumor-bridge tools/train_bridge.nim\npython3 tools/test_prompt_games.py /tmp/rumor-bridge\n```\n\nThe persistent JSONL command is `[\"/tmp/rumor-bridge\", \"<source>/coworld_manifest_template.json\", \"standard\"]`\nwith ten players. Use `bridged` for the second variant. Reset accepts the\nwording fields; `teacher` returns the published scripted action; `step` parses\nand executes text actions through the native simulator.\n\nFor private native evidence, set `RUMOR_HOST_TRACE_PATH` outside published\nartifact directories and set `RUMOR_SOURCE_REVISION` to the qualified commit.\nThe host creates an exclusive owner-only file containing actual HTTP requests,\nresponses, prompt hashes, retries, selected attempts, and applied events.\nThis file includes operator instructions and must remain private.\n\nDeterministic fixtures verify mechanics and provenance, not model robustness.\nA learning comparison must freeze policies and inference settings, match game\nseeds, report incomplete games and fallbacks, and reserve held-out wordings\nuntil training choices are frozen.\n"
           }
         }
       ]
