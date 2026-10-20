@@ -87,7 +87,7 @@ when isMainModule:
         let user = userPrompt(sim, seat, OperatorPrompt)
         rows.add($(%*{
           "episode_id": "rumor-" & variant & "-" & $seed & "-" &
-            $selection.selectedVariant & "-" & $selection.seed,
+            $selection.variant & "-" & $selection.selectedVariant & "-" & $selection.seed,
           "seed": "rumor-" & $seed,
           "scenario_family": "rumor-" & $seed,
           "prompt_template": promptMetadata(selection, system, user),

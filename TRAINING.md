@@ -11,7 +11,7 @@ Exports contain `train.jsonl`, `validation.jsonl`, and `manifest.json`.
 Every fifth scenario seed belongs to validation. Mixed wording cycles separately
 within each split so training receives all five presentations. The `rumor-SEED`
 family groups the same scenario across variants and wording selections. Episode IDs
-include selected wording and prompt seed so matched exports remain distinguishable.
+include requested selection, resolved wording, and prompt seed so matched exports remain distinguishable.
 Rows retain exact message hashes and scripted gossip/herd responses. Each reply
 passes the hosted parser before advancing the game. Existing output directories
 are rejected. These are scripted imitation examples, not measured model strength.
