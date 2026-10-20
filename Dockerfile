@@ -40,9 +40,9 @@ RUN rm -f nim.cfg && \
     else echo "--path:\"$pkg\"" >> nim.cfg; fi; \
   done && \
   echo '--path:"src"' >> nim.cfg && \
-  nim c -d:release -d:useMalloc --opt:speed --stackTrace:on \
+  nim c -d:release -d:useMalloc --opt:speed --stackTrace:on --parallelBuild:1 \
     --nimcache:/tmp/rumor-nimcache --out:rumor src/rumor.nim && \
-  nim c -d:release -d:useMalloc --opt:speed --stackTrace:on \
+  nim c -d:release -d:useMalloc --opt:speed --stackTrace:on --parallelBuild:1 \
     --nimcache:/tmp/rumor-player-nimcache --out:rumor-player \
     src/rumor_player.nim
 

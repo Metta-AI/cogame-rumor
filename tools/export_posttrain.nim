@@ -2,19 +2,25 @@
 ## Usage: nim r --path:src tools/export_posttrain.nim OUTPUT GAMES [FIRST_SEED] [VARIANT]
 
 import std/[json, os, osproc, strutils]
-import rumor/[llm, sim]
+import rumor/[llm, sim, prompts]
 
 const OperatorPrompt = "Use your private clue and neighbour messages to maximize your score in the final vote."
 const Variants = ["standard", "bridged"]
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len notin 2 .. 4:
-    quit("usage: export_posttrain OUTPUT GAMES [FIRST_SEED] [VARIANT]", 1)
+  if args.len notin 2 .. 6:
+    quit("usage: export_posttrain OUTPUT GAMES [FIRST_SEED] [VARIANT] [PROMPT_VARIANT] [PROMPT_SEED]", 1)
   let output = args[0]
   let games = parseInt(args[1])
   let firstSeed = if args.len >= 3: parseInt(args[2]) else: 1
-  let variant = if args.len == 4: args[3] else: Variants[0]
+  let variant = if args.len >= 4: args[3] else: Variants[0]
+  var promptConfig = newJObject()
+  if args.len >= 5: promptConfig["promptVariant"] = %args[4]
+  if args.len == 6: promptConfig["promptSeed"] = %parseInt(args[5])
+  let configured = promptSelection(promptConfig)
+  if configured.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference}:
+    quit("held-out wording cannot enter training sources", 1)
   if games < 10 or firstSeed < 1:
     quit("at least ten games and a positive first seed are required", 1)
   if variant notin Variants:
@@ -33,7 +39,12 @@ when isMainModule:
     trainRows: seq[string]
     validationRows: seq[string]
     runs = newJArray()
+  var wordingCounts: array[2, int]
   for seed in firstSeed ..< firstSeed + games:
+    var selection = configured
+    let splitIndex = ord(seed mod 5 == 0)
+    if selection.variant == pvMixed: selection.seed += wordingCounts[splitIndex]
+    inc wordingCounts[splitIndex]
     var config = defaultGameConfig()
     let runtimeConfig = copy(variantConfig)
     runtimeConfig["tokens"] = newJArray()
@@ -42,6 +53,7 @@ when isMainModule:
     runtimeConfig["seed"] = %seed
     runtimeConfig["turnDelayMs"] = %0
     config.update($runtimeConfig)
+    config.promptSelection = selection
     config = sampleEpisode(config)
     var sim = initSim(config)
     var rows: seq[string]
@@ -71,14 +83,18 @@ when isMainModule:
             parsed.belief == teacher.belief and
             parsed.message == teacher.message and
             parsed.notes == teacher.notes
+        let system = systemPrompt(sim, seat)
+        let user = userPrompt(sim, seat, OperatorPrompt)
         rows.add($(%*{
-          "episode_id": "rumor-" & variant & "-" & $seed,
-          "seed": "rumor-" & variant & "-" & $seed,
+          "episode_id": "rumor-" & variant & "-" & $seed & "-" &
+            $selection.variant & "-" & $selection.selectedVariant & "-" & $selection.seed,
+          "seed": "rumor-" & $seed,
+          "scenario_family": "rumor-" & $seed,
+          "prompt_template": promptMetadata(selection, system, user),
           "decision_id": rows.len,
           "prompt": [
-            {"role": "system", "content": systemPrompt(sim, seat)},
-            {"role": "user", "content": userPrompt(sim, seat,
-              OperatorPrompt)}
+            {"role": "system", "content": system},
+            {"role": "user", "content": user}
           ],
           "completion": [{"role": "assistant", "content": $completion}],
           "game": "rumor",
